@@ -19,7 +19,7 @@
         <version>1.8.11-SNAPSHOT</version>
     </parent>
     <groupId>com.codenvy.vfs</groupId>
-    <artifactId>codenv-vfs-impl</artifactId>
+    <artifactId>codenvy-vfs-impl</artifactId>
     <version>3.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Codenvy Virtual File System</name>
