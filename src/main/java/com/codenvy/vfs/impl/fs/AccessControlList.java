@@ -115,6 +115,8 @@ public class AccessControlList {
                 Set<String> permissions = permissionMap.get(principal);
                 if (permissions == null) {
                     permissionMap.put(principal, permissions = new HashSet<>(4));
+                } else {
+                    permissions.clear();
                 }
                 permissions.addAll(acePermissions);
             }
