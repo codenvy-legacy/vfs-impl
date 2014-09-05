@@ -16,6 +16,9 @@ import com.codenvy.api.vfs.server.VirtualFileSystemProvider;
 import com.codenvy.api.vfs.server.VirtualFileSystemRegistry;
 import com.codenvy.api.vfs.server.search.SearcherProvider;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -29,6 +32,8 @@ import java.io.File;
  */
 @Singleton
 public class AutoMountVirtualFileSystemRegistry extends VirtualFileSystemRegistry {
+    private static final Logger LOG = LoggerFactory.getLogger(AutoMountVirtualFileSystemRegistry.class);
+
     private final LocalFSMountStrategy mountStrategy;
     private final EventService         eventService;
     private final SearcherProvider     searcherProvider;
@@ -48,6 +53,7 @@ public class AutoMountVirtualFileSystemRegistry extends VirtualFileSystemRegistr
         if (!wsPath.exists()) {
             return null;
         }
+        LOG.debug("Using {} as mount point for workspace {} ", wsPath.getAbsolutePath(), vfsId);
         return new LocalFileSystemProvider(vfsId, mountStrategy, eventService, searcherProvider, this);
     }
 }
