@@ -12,14 +12,13 @@ package com.codenvy.vfs.impl.fs;
 
 import com.codenvy.api.vfs.server.VirtualFile;
 import com.codenvy.api.vfs.server.VirtualFileFilter;
-import com.codenvy.inject.DynaModule;
+import com.codenvy.api.vfs.server.search.SearcherProvider;
 import com.google.inject.AbstractModule;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
 
 /** @author andrew00x */
-@DynaModule
-public class VirtualFileSystemModule extends AbstractModule {
+public class VirtualFileSystemFSModule extends AbstractModule {
     @Override
     protected void configure() {
         final Multibinder<VirtualFileFilter> multibinder =
@@ -30,6 +29,8 @@ public class VirtualFileSystemModule extends AbstractModule {
                 return !virtualFile.getPath().endsWith("/.codenvy/misc.xml");
             }
         });
-
+        bind(LocalFileSystemRegistryPlugin.class);
+        bind(LocalFSMountStrategy.class).to(WorkspaceHashLocalFSMountStrategy.class);
+        bind(SearcherProvider.class).to(CleanableSearcherProvider.class);
     }
 }
