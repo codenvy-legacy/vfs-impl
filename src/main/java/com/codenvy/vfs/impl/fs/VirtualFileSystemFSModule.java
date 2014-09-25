@@ -29,7 +29,6 @@ public class VirtualFileSystemFSModule extends AbstractModule {
                 return !virtualFile.getPath().endsWith("/.codenvy/misc.xml");
             }
         });
-        bind(LocalFileSystemRegistryPlugin.class);
         bind(LocalFSMountStrategy.class).to(WorkspaceHashLocalFSMountStrategy.class);
         bind(SearcherProvider.class).to(CleanableSearcherProvider.class);
     }
