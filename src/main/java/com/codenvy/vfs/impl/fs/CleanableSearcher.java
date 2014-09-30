@@ -128,14 +128,14 @@ public class CleanableSearcher extends FSIndexSearcher {
                     if (Thread.currentThread().isInterrupted()) {
                         break;
                     }
-                    update.run();
+                    update.run(); // NOSONAR
                 }
                 postponeUpdates.clear();
             } catch (ServerException e) {
                 LOG.error(e.getMessage(), e);
                 initError = e;
                 close();
-            } catch (RuntimeException | Error e) {
+            } catch (RuntimeException | Error e) {  // NOSONAR
                 LOG.error(e.getMessage(), e);
                 initError = e;
                 close();
