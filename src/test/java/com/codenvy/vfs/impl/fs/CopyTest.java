@@ -97,7 +97,7 @@ public class CopyTest extends LocalFileSystemTest {
         // Destination resource is protected but set user who has permits as current.
         ByteArrayContainerResponseWriter writer = new ByteArrayContainerResponseWriter();
         String requestPath = SERVICE_URI + "copy/" + fileId + '?' + "parentId=" + protectedDestinationId;
-        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
         ContainerResponse response = launcher.service("POST", requestPath, BASE_URI, null, null, writer, null);
         log.info(new String(writer.getBody()));
         assertEquals("Error: " + response.getEntity(), 200, response.getStatus());

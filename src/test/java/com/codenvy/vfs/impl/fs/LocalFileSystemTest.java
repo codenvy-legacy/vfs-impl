@@ -148,7 +148,8 @@ public abstract class LocalFileSystemTest extends TestCase {
         deployer.publish(new VirtualFileSystemApplication());
 
         // RUNTIME VARIABLES
-        EnvironmentContext.getCurrent().setUser(new UserImpl("admin", "admin", null, Arrays.asList("workspace/admin", "workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("admin", "admin", null, Arrays.asList("workspace/admin", "workspace/developer")
+                , false));
     }
 
     // Directory "fs-root" in "target" folder of builder project.

@@ -111,7 +111,7 @@ public class ChildrenTest extends LocalFileSystemTest {
         ByteArrayContainerResponseWriter writer = new ByteArrayContainerResponseWriter();
         String requestPath = SERVICE_URI + "children/" + protectedFolderId;
         // Replace default principal by principal who has read permission.
-        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
         // ---
         ContainerResponse response = launcher.service("GET", requestPath, BASE_URI, null, null, writer, null);
         assertEquals("Error: " + response.getEntity(), 200, response.getStatus());

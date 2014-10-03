@@ -158,7 +158,7 @@ public class UpdateTest extends LocalFileSystemTest {
         ByteArrayContainerResponseWriter writer = new ByteArrayContainerResponseWriter();
         // File is protected and default principal 'andrew' has not write permission.
         // Replace default principal by principal who has write permission.
-        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
         ContainerResponse response = launcher.service("POST", requestPath, BASE_URI, h, properties.getBytes(), writer, null);
         assertEquals("Error: " + response.getEntity(), 200, response.getStatus());
 

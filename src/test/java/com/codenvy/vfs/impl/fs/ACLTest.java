@@ -173,7 +173,7 @@ public class ACLTest extends LocalFileSystemTest {
         h.put("Content-Type", Arrays.asList("application/json"));
         // File is protected and default principal 'andrew' has not update_acl permission.
         // Replace default principal by principal who has write permission.
-        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
         ContainerResponse response = launcher.service("POST", requestPath, BASE_URI, h, acl.getBytes(), null);
         assertEquals(204, response.getStatus());
 

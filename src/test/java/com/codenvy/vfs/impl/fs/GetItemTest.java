@@ -166,7 +166,7 @@ public class GetItemTest extends LocalFileSystemTest {
         ByteArrayContainerResponseWriter writer = new ByteArrayContainerResponseWriter();
         String requestPath = SERVICE_URI + "item/" + protectedFileId;
         // Replace default principal by principal who has read permission.
-        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer")));
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
         // ---
         ContainerResponse response = launcher.service("GET", requestPath, BASE_URI, null, null, writer, null);
         log.info(new String(writer.getBody()));
