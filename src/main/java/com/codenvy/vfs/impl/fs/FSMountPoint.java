@@ -721,6 +721,25 @@ public class FSMountPoint implements MountPoint {
                 }
                 // use copy and delete
                 doCopy(virtualFile, renamed);
+                // permissions is not copied with 'doCopy' method, copy them now if any
+                final AccessControlList sourceAcl = getACL(virtualFile);
+                if (!sourceAcl.isEmpty()) {
+                    final java.io.File renamedAclFile = getAclFile(renamed.getInternalPath());
+                    DataOutputStream dos = null;
+                    try {
+                        // Ignore result of 'mkdirs' here. If we are failed to create directory
+                        // We will get FileNotFoundException at the next line when try to create FileOutputStream.
+                        renamedAclFile.getParentFile().mkdirs();
+                        dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(renamedAclFile)));
+                        aclSerializer.write(dos, sourceAcl);
+                    } catch (IOException e) {
+                        String msg = String.format("Unable save ACL for '%s'. ", virtualFile.getPath());
+                        LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
+                        throw new ServerException(msg);
+                    } finally {
+                        closeQuietly(dos);
+                    }
+                }
                 doDelete(virtualFile, lockToken);
             } else {
                 renamed = virtualFile;

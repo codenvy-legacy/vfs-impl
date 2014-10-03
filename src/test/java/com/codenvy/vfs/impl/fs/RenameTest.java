@@ -13,6 +13,8 @@ package com.codenvy.vfs.impl.fs;
 import com.codenvy.api.vfs.shared.ExitCodes;
 import com.codenvy.api.vfs.shared.dto.Principal;
 import com.codenvy.api.vfs.shared.dto.VirtualFileSystemInfo.BasicPermissions;
+import com.codenvy.commons.env.EnvironmentContext;
+import com.codenvy.commons.user.UserImpl;
 import com.codenvy.dto.server.DtoFactory;
 import com.google.common.collect.Sets;
 
@@ -44,6 +46,7 @@ public class RenameTest extends LocalFileSystemTest {
     private String protectedFolderPath;
 
     private Map<String, String[]> properties;
+    private Map<Principal, Set<String>> permissions;
 
     @Override
     protected void setUp() throws Exception {
@@ -72,7 +75,7 @@ public class RenameTest extends LocalFileSystemTest {
 
         createLock(lockedFilePath, lockToken, Long.MAX_VALUE);
 
-        Map<Principal, Set<String>> permissions = new HashMap<>(2);
+        permissions = new HashMap<>(2);
         Principal user = DtoFactory.getInstance().createDto(Principal.class).withName("andrew").withType(Principal.Type.USER);
         Principal admin = DtoFactory.getInstance().createDto(Principal.class).withName("admin").withType(Principal.Type.USER);
         permissions.put(user, Sets.newHashSet(BasicPermissions.ALL.value()));
@@ -211,5 +214,18 @@ public class RenameTest extends LocalFileSystemTest {
         expectedProperties.put("vfs:mimeType", new String[]{"text/directory+FOO"});
         validateProperties(expectedPath, expectedProperties, false); // media type updated only for current folder
         validateProperties(expectedPath, properties, true);
+    }
+
+    public void testRenameFileCopyPermissions() throws Exception {
+        final String newName = "_FILE_NEW_NAME_";
+        ByteArrayContainerResponseWriter writer = new ByteArrayContainerResponseWriter();
+        String requestPath = SERVICE_URI + "rename/" + protectedFileId + '?' + "newname=" + newName;
+        EnvironmentContext.getCurrent().setUser(new UserImpl("andrew", "andrew", null, Arrays.asList("workspace/developer"), false));
+        ContainerResponse response = launcher.service("POST", requestPath, BASE_URI, null, null, writer, null);
+        assertEquals(200, response.getStatus());
+        String expectedPath = testRootPath + '/' + newName;
+        assertTrue(exists(expectedPath));
+        Map<Principal, Set<String>> renamedPermissions = readPermissions(expectedPath);
+        assertEquals(permissions, renamedPermissions);
     }
 }
