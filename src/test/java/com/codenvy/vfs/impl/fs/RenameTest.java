@@ -10,7 +10,6 @@
  *******************************************************************************/
 package com.codenvy.vfs.impl.fs;
 
-import com.codenvy.api.vfs.shared.ExitCodes;
 import com.codenvy.api.vfs.shared.dto.Principal;
 import com.codenvy.api.vfs.shared.dto.VirtualFileSystemInfo.BasicPermissions;
 import com.codenvy.commons.env.EnvironmentContext;
