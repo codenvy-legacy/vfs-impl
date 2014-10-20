@@ -33,8 +33,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Implementation of LuceneSearcherProvider which run LuceneSearcher initialization update tasks in ExecutorService.
- * <p/>
  * NOTE: This implementation always create new index in new directory. Index is not reused after call {@link
  * com.codenvy.vfs.impl.fs.CleanableSearcher#close()}. Index directory is cleaned after close Searcher.
  *
@@ -86,7 +84,7 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
             searcher = instances.putIfAbsent(vfsIoRoot, newSearcher);
             if (searcher == null) {
                 searcher = newSearcher;
-                searcher.init(executor, mountPoint);
+                searcher.init(mountPoint);
             }
         }
         return searcher;

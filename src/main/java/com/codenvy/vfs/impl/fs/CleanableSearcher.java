@@ -10,20 +10,9 @@
  *******************************************************************************/
 package com.codenvy.vfs.impl.fs;
 
-import com.codenvy.api.core.ServerException;
-import com.codenvy.api.vfs.server.MountPoint;
-import com.codenvy.api.vfs.server.VirtualFile;
 import com.codenvy.api.vfs.server.VirtualFileFilter;
 
-import org.apache.lucene.index.Term;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 
 import static com.codenvy.commons.lang.IoUtil.deleteRecursive;
 
@@ -33,30 +22,11 @@ import static com.codenvy.commons.lang.IoUtil.deleteRecursive;
  * @author andrew00x
  */
 public class CleanableSearcher extends FSIndexSearcher {
-    private static final Logger LOG = LoggerFactory.getLogger(CleanableSearcher.class);
-    private final    CleanableSearcherProvider searcherService;
-    private final    CountDownLatch            postponeUpdateLatch;
-    private final    Queue<IndexUpdateTask>    postponeUpdates;
-    private volatile boolean                   initDone;
-    private volatile Throwable                 initError;
+    private final CleanableSearcherProvider searcherService;
 
     CleanableSearcher(CleanableSearcherProvider searcherService, java.io.File indexDir, VirtualFileFilter filter) throws IOException {
         super(indexDir, filter);
         this.searcherService = searcherService;
-        postponeUpdates = new ConcurrentLinkedQueue<>();
-        postponeUpdateLatch = new CountDownLatch(1);
-    }
-
-    public void init(ExecutorService executor, MountPoint mountPoint) {
-        executor.execute(new IndexInitTask(mountPoint));
-    }
-
-    public boolean isInitDone() {
-        return initDone && postponeUpdateLatch.getCount() == 0;
-    }
-
-    public Throwable getInitError() {
-        return initError;
     }
 
     @Override
@@ -67,109 +37,5 @@ public class CleanableSearcher extends FSIndexSearcher {
     void doClose() {
         super.close();
         deleteRecursive(getIndexDir());
-    }
-
-    @Override
-    protected void doAdd(VirtualFile virtualFile) throws ServerException {
-        if (initDone) {
-            try {
-                postponeUpdateLatch.await();
-                super.doAdd(virtualFile);
-            } catch (InterruptedException ignored) {
-            }
-        } else {
-            postponeUpdate(new IndexUpdateTask(virtualFile, null));
-        }
-    }
-
-    @Override
-    protected void doDelete(Term deleteTerm) throws ServerException {
-        if (initDone) {
-            try {
-                postponeUpdateLatch.await();
-                super.doDelete(deleteTerm);
-            } catch (InterruptedException ignored) {
-            }
-        } else {
-            postponeUpdate(new IndexUpdateTask(null, deleteTerm));
-        }
-    }
-
-    @Override
-    protected void doUpdate(Term deleteTerm, VirtualFile virtualFile) throws ServerException {
-        if (initDone) {
-            try {
-                postponeUpdateLatch.await();
-                super.doUpdate(deleteTerm, virtualFile);
-            } catch (InterruptedException ignored) {
-            }
-        } else {
-            postponeUpdate(new IndexUpdateTask(virtualFile, deleteTerm));
-        }
-    }
-
-    private void postponeUpdate(IndexUpdateTask update) {
-        postponeUpdates.add(update);
-    }
-
-    private class IndexInitTask implements Runnable {
-        final MountPoint mountPoint;
-
-        IndexInitTask(MountPoint mountPoint) {
-            this.mountPoint = mountPoint;
-        }
-
-        @Override
-        public void run() {
-            try {
-                CleanableSearcher.super.init(mountPoint);
-                initDone = true;
-                for (IndexUpdateTask update : postponeUpdates) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        break;
-                    }
-                    update.run(); // NOSONAR
-                }
-                postponeUpdates.clear();
-            } catch (ServerException e) {
-                LOG.error(e.getMessage(), e);
-                initError = e;
-                close();
-            } catch (RuntimeException | Error e) {  // NOSONAR
-                LOG.error(e.getMessage(), e);
-                initError = e;
-                close();
-                throw e;
-            } finally {
-                postponeUpdateLatch.countDown();
-            }
-        }
-    }
-
-    private class IndexUpdateTask implements Runnable {
-        final VirtualFile virtualFile;
-        final Term        deleteTerm;
-
-        IndexUpdateTask(VirtualFile virtualFile, Term deleteTerm) {
-            this.virtualFile = virtualFile;
-            this.deleteTerm = deleteTerm;
-        }
-
-        @Override
-        public void run() {
-            try {
-                if (deleteTerm != null) {
-                    if (virtualFile != null) {
-                        CleanableSearcher.super.doUpdate(deleteTerm, virtualFile);
-                    } else {
-                        CleanableSearcher.super.doDelete(deleteTerm);
-                    }
-                } else {
-                    CleanableSearcher.super.doAdd(virtualFile);
-                }
-            } catch (ServerException e) {
-                LOG.error(e.getMessage(), e);
-            }
-        }
     }
 }
