@@ -351,13 +351,13 @@ public class FSMountPoint implements MountPoint {
         if (!virtualFile.exists()) {
             throw new NotFoundException(String.format("Object '%s' does not exists. ", vfsPath));
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             if (!hasPermission(virtualFile, BasicPermissions.READ.value(), true)) {
                 throw new ForbiddenException(String.format("Unable get item '%s'. Operation not permitted. ", virtualFile.getPath()));
             }
         } finally {
-            lock.release();
+//            lock.release();
         }
         return virtualFile;
     }
@@ -423,7 +423,7 @@ public class FSMountPoint implements MountPoint {
             return null;
         }
         final Path childPath = parent.getInternalPath().newPath(name);
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(childPath, false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(childPath, false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final VirtualFileImpl child =
                     new VirtualFileImpl(new java.io.File(parent.getIoFile(), name), childPath, pathToId(childPath), this);
@@ -434,7 +434,7 @@ public class FSMountPoint implements MountPoint {
                 throw new ForbiddenException(String.format("Unable get item '%s'. Operation not permitted. ", child.getPath()));
             }
         } finally {
-            lock.release();
+//            lock.release();
         }
         return null;
     }
@@ -446,7 +446,7 @@ public class FSMountPoint implements MountPoint {
             return LazyIterator.emptyIterator();
         }
 
-        final PathLockFactory.PathLock parentLock = pathLockFactory.getLock(parent.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock parentLock = pathLockFactory.getLock(parent.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         List<VirtualFile> children;
         try {
             if (parent.isRoot()) {
@@ -466,7 +466,7 @@ public class FSMountPoint implements MountPoint {
                 }
             }
         } finally {
-            parentLock.release();
+//            parentLock.release();
         }
         // Always sort to get the exact same order of files for each listing.
         Collections.sort(children);
@@ -588,10 +588,10 @@ public class FSMountPoint implements MountPoint {
         if (!parent.isFolder()) {
             throw new ForbiddenException("Unable copy item. Item specified as parent is not a folder. ");
         }
-        PathLockFactory.PathLock sourceLock = null;
+//        PathLockFactory.PathLock sourceLock = null;
         PathLockFactory.PathLock parentLock = null;
         try {
-            sourceLock = pathLockFactory.getLock(source.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
+//            sourceLock = pathLockFactory.getLock(source.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
             parentLock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
             if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
                 throw new ForbiddenException(String.format("Unable copy item '%s' to %s. Operation not permitted. ",
@@ -607,9 +607,9 @@ public class FSMountPoint implements MountPoint {
             eventService.publish(new CreateEvent(workspaceId, destination.getPath(), source.isFolder()));
             return destination;
         } finally {
-            if (sourceLock != null) {
-                sourceLock.release();
-            }
+//            if (sourceLock != null) {
+//                sourceLock.release();
+//            }
             if (parentLock != null) {
                 parentLock.release();
             }
@@ -1299,11 +1299,11 @@ public class FSMountPoint implements MountPoint {
         if (!virtualFile.isFile()) {
             return false;
         }
-        final PathLockFactory.PathLock pathLock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock pathLock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             return NO_LOCK != checkIsLockValidAndGet(virtualFile);
         } finally {
-            pathLock.release();
+//            pathLock.release();
         }
     }
 
@@ -1350,11 +1350,11 @@ public class FSMountPoint implements MountPoint {
 
     AccessControlList getACL(VirtualFileImpl virtualFile) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             return new AccessControlList(aclCache[virtualFile.getInternalPath().hashCode() & MASK].get(virtualFile.getInternalPath()));
         } finally {
-            lock.release();
+//            lock.release();
         }
     }
 
@@ -1533,11 +1533,11 @@ public class FSMountPoint implements MountPoint {
 
     private Map<String, String[]> getFileMetadata(VirtualFileImpl virtualFile) {
         final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             return copyMetadataMap(metadataCache[index].get(virtualFile.getInternalPath()));
         } finally {
-            lock.release();
+//            lock.release();
         }
     }
 
@@ -1545,12 +1545,12 @@ public class FSMountPoint implements MountPoint {
     String getPropertyValue(VirtualFileImpl virtualFile, String name) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
         final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final String[] value = metadataCache[index].get(virtualFile.getInternalPath()).get(name);
             return value == null || value.length == 0 ? null : value[0];
         } finally {
-            lock.release();
+//            lock.release();
         }
     }
 
@@ -1558,14 +1558,14 @@ public class FSMountPoint implements MountPoint {
     String[] getPropertyValues(VirtualFileImpl virtualFile, String name) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
         final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final String[] value = metadataCache[index].get(virtualFile.getInternalPath()).get(name);
             final String[] copyValue = new String[value.length];
             System.arraycopy(value, 0, copyValue, 0, value.length);
             return copyValue;
         } finally {
-            lock.release();
+//            lock.release();
         }
     }
 
@@ -1666,7 +1666,7 @@ public class FSMountPoint implements MountPoint {
         if (!virtualFile.isFolder()) {
             return LazyIterator.emptyIterator();
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
+//        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
         try {
             final List<Pair<String, String>> hashes = new ArrayList<>();
             final int trimPathLength = virtualFile.getPath().length() + 1;
@@ -1691,7 +1691,7 @@ public class FSMountPoint implements MountPoint {
             });
             return LazyIterator.fromList(hashes);
         } finally {
-            lock.release();
+//            lock.release();
         }
     }
 

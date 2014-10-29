@@ -96,6 +96,14 @@ public class SearcherTest extends LocalFileSystemTest {
 
         // Touch Searcher to initialize it.
         searcher = (CleanableSearcher)searcherProvider.getSearcher(mountPoint, true);
+
+        Throwable error;
+        while ((error = searcher.initializationError()) == null && !searcher.initialized()) {
+            Thread.sleep(100);
+        }
+        if (error != null) {
+            fail(error.getMessage());
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

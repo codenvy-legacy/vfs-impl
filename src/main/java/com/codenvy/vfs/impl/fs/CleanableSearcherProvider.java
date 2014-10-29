@@ -56,12 +56,12 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
     }
 
     @Override
-    public Searcher getSearcher(MountPoint mountPoint, boolean create) throws ServerException {
+    public Searcher getSearcher(final MountPoint mountPoint, boolean create) throws ServerException {
         final java.io.File vfsIoRoot = ((VirtualFileImpl)mountPoint.getRoot()).getIoFile();
         CleanableSearcher searcher = instances.get(vfsIoRoot);
         if (searcher == null && create) {
             final java.io.File myIndexDir;
-            CleanableSearcher newSearcher;
+            final CleanableSearcher newSearcher;
             try {
                 Files.createDirectories(indexRootDir.toPath());
                 myIndexDir = Files.createTempDirectory(indexRootDir.toPath(), null).toFile();
@@ -84,7 +84,7 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
             searcher = instances.putIfAbsent(vfsIoRoot, newSearcher);
             if (searcher == null) {
                 searcher = newSearcher;
-                searcher.init(mountPoint);
+                newSearcher.init(mountPoint);
             }
         }
         return searcher;
@@ -101,6 +101,10 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
         for (CleanableSearcher searcher : instances.values()) {
             searcher.close();
         }
+    }
+
+    ExecutorService getExecutor() {
+        return executor;
     }
 }
 

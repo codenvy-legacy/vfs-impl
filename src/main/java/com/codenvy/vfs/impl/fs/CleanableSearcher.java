@@ -10,9 +10,15 @@
  *******************************************************************************/
 package com.codenvy.vfs.impl.fs;
 
+import com.codenvy.api.core.ServerException;
+import com.codenvy.api.vfs.server.MountPoint;
 import com.codenvy.api.vfs.server.VirtualFileFilter;
 
-import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.codenvy.commons.lang.IoUtil.deleteRecursive;
 
@@ -22,11 +28,44 @@ import static com.codenvy.commons.lang.IoUtil.deleteRecursive;
  * @author andrew00x
  */
 public class CleanableSearcher extends FSIndexSearcher {
+    private static final Logger LOG = LoggerFactory.getLogger(CleanableSearcher.class);
     private final CleanableSearcherProvider searcherService;
 
-    CleanableSearcher(CleanableSearcherProvider searcherService, java.io.File indexDir, VirtualFileFilter filter) throws IOException {
+    private final AtomicBoolean              initFlag;
+    private final AtomicReference<Exception> initError;
+
+    CleanableSearcher(CleanableSearcherProvider searcherService, java.io.File indexDir, VirtualFileFilter filter) {
         super(indexDir, filter);
         this.searcherService = searcherService;
+        initFlag = new AtomicBoolean();
+        initError = new AtomicReference<>();
+    }
+
+    @Override
+    public void init(final MountPoint mountPoint) throws ServerException {
+        doInit();
+        searcherService.getExecutor().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    CleanableSearcher.this.addTree(mountPoint.getRoot());
+                    initFlag.set(true);
+                } catch (ServerException e) {
+                    initError.set(e);
+                    LOG.error(e.getMessage());
+                }
+            }
+        });
+    }
+
+    // for test
+    Exception initializationError() {
+        return initError.get();
+    }
+
+    // for test
+    boolean initialized() {
+        return initFlag.get();
     }
 
     @Override
