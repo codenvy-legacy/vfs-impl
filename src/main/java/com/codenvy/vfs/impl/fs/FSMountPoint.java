@@ -171,10 +171,17 @@ public class FSMountPoint implements MountPoint {
             DataInputStream dis = null;
 
             try {
-                java.io.File lockFile = getLockFile(key);
-                if (lockFile.exists()) {
-                    dis = new DataInputStream(new BufferedInputStream(new FileInputStream(lockFile)));
-                    return locksSerializer.read(dis);
+                final Path lockFilePath = getLockFilePath(key);
+                final java.io.File lockIoFile = new java.io.File(ioRoot, toIoPath(lockFilePath));
+                if (lockIoFile.exists()) {
+                    final PathLockFactory.PathLock lockFilePathLock =
+                            pathLockFactory.getLock(lockFilePath, false).acquire(LOCK_FILE_TIMEOUT);
+                    try {
+                        dis = new DataInputStream(new BufferedInputStream(new FileInputStream(lockIoFile)));
+                        return locksSerializer.read(dis);
+                    } finally {
+                        lockFilePathLock.release();
+                    }
                 }
                 return NO_LOCK;
             } catch (IOException e) {
@@ -197,10 +204,17 @@ public class FSMountPoint implements MountPoint {
         protected Map<String, String[]> loadValue(Path key) {
             DataInputStream dis = null;
             try {
-                java.io.File metadataFile = getMetadataFile(key);
-                if (metadataFile.exists()) {
-                    dis = new DataInputStream(new BufferedInputStream(new FileInputStream(metadataFile)));
-                    return metadataSerializer.read(dis);
+                final Path metadataFilePath = getMetadataFilePath(key);
+                java.io.File metadataIoFile = new java.io.File(ioRoot, toIoPath(metadataFilePath));
+                if (metadataIoFile.exists()) {
+                    final PathLockFactory.PathLock metadataFilePathLock =
+                            pathLockFactory.getLock(metadataFilePath, false).acquire(LOCK_FILE_TIMEOUT);
+                    try {
+                        dis = new DataInputStream(new BufferedInputStream(new FileInputStream(metadataIoFile)));
+                        return metadataSerializer.read(dis);
+                    } finally {
+                        metadataFilePathLock.release();
+                    }
                 }
                 return Collections.emptyMap();
             } catch (IOException e) {
@@ -223,10 +237,16 @@ public class FSMountPoint implements MountPoint {
         protected AccessControlList loadValue(Path key) {
             DataInputStream dis = null;
             try {
-                java.io.File aclFile = getAclFile(key);
-                if (aclFile.exists()) {
-                    dis = new DataInputStream(new BufferedInputStream(new FileInputStream(aclFile)));
-                    return aclSerializer.read(dis);
+                final Path aclFilePath = getAclFilePath(key);
+                final java.io.File aclIoFile = new java.io.File(ioRoot, toIoPath(aclFilePath));
+                if (aclIoFile.exists()) {
+                    final PathLockFactory.PathLock aclFilePathLock = pathLockFactory.getLock(aclFilePath, false).acquire(LOCK_FILE_TIMEOUT);
+                    try {
+                        dis = new DataInputStream(new BufferedInputStream(new FileInputStream(aclIoFile)));
+                        return aclSerializer.read(dis);
+                    } finally {
+                        aclFilePathLock.release();
+                    }
                 }
 
                 // TODO : REMOVE!!! Temporary default ACL until will have client side for real manage
@@ -408,7 +428,7 @@ public class FSMountPoint implements MountPoint {
         if (virtualFile.isRoot()) {
             return null;
         }
-        final Path parentPath = virtualFile.getInternalPath().getParent();
+        final Path parentPath = virtualFile.getVirtualFilePath().getParent();
         return new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(parentPath)), parentPath, pathToId(parentPath), this);
     }
 
@@ -417,7 +437,7 @@ public class FSMountPoint implements MountPoint {
         if (parent.isFile()) {
             return null;
         }
-        final Path childPath = parent.getInternalPath().newPath(name);
+        final Path childPath = parent.getVirtualFilePath().newPath(name);
         final VirtualFileImpl child =
                 new VirtualFileImpl(new java.io.File(parent.getIoFile(), name), childPath, pathToId(childPath), this);
         if (child.exists()) {
@@ -466,7 +486,7 @@ public class FSMountPoint implements MountPoint {
         }
         final List<VirtualFile> children = new ArrayList<>(names.length);
         for (String name : names) {
-            final Path childPath = virtualFile.getInternalPath().newPath(name);
+            final Path childPath = virtualFile.getVirtualFilePath().newPath(name);
             children.add(new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(childPath)), childPath, pathToId(childPath), this));
         }
         return children;
@@ -481,42 +501,36 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException("Unable create new file. Item specified as parent is not a folder. ");
         }
 
-        final PathLockFactory.PathLock parentLock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable create new file in '%s'. Operation not permitted. ", parent.getPath()));
-            }
-            final Path newPath = parent.getInternalPath().newPath(name);
-            final java.io.File newIoFile = new java.io.File(ioRoot, toIoPath(newPath));
-            try {
-                if (!newIoFile.createNewFile()) // atomic
-                {
-                    throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
-                }
-            } catch (IOException e) {
-                String msg = String.format("Unable create new file '%s'. ", newPath);
-                LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
-                throw new ServerException(msg);
-            }
-
-            final VirtualFileImpl newVirtualFile = new VirtualFileImpl(newIoFile, newPath, pathToId(newPath), this);
-            // Update content if any.
-            if (content != null) {
-                doUpdateContent(newVirtualFile, mediaType, content);
-            }
-
-            if (searcherProvider != null) {
-                try {
-                    searcherProvider.getSearcher(this, true).add(newVirtualFile);
-                } catch (ServerException e) {
-                    LOG.error(e.getMessage(), e);
-                }
-            }
-            eventService.publish(new CreateEvent(workspaceId, newVirtualFile.getPath(), false));
-            return newVirtualFile;
-        } finally {
-            parentLock.release();
+        if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable create new file in '%s'. Operation not permitted. ", parent.getPath()));
         }
+        final Path newPath = parent.getVirtualFilePath().newPath(name);
+        final java.io.File newIoFile = new java.io.File(ioRoot, toIoPath(newPath));
+        try {
+            if (!newIoFile.createNewFile()) { // atomic
+                throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
+            }
+        } catch (IOException e) {
+            String msg = String.format("Unable create new file '%s'. ", newPath);
+            LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
+            throw new ServerException(msg);
+        }
+
+        final VirtualFileImpl newVirtualFile = new VirtualFileImpl(newIoFile, newPath, pathToId(newPath), this);
+        // Update content if any.
+        if (content != null) {
+            doUpdateContent(newVirtualFile, mediaType, content);
+        }
+
+        if (searcherProvider != null) {
+            try {
+                searcherProvider.getSearcher(this, true).add(newVirtualFile);
+            } catch (ServerException e) {
+                LOG.error(e.getMessage(), e);
+            }
+        }
+        eventService.publish(new CreateEvent(workspaceId, newVirtualFile.getPath(), false));
+        return newVirtualFile;
     }
 
 
@@ -527,85 +541,62 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException("Unable create folder. Item specified as parent is not a folder. ");
         }
 
-        final PathLockFactory.PathLock parentLock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(
-                        String.format("Unable create new folder in '%s'. Operation not permitted. ", parent.getPath()));
-            }
-            // Name may be hierarchical, e.g. folder1/folder2/folder3.
-            // Some folder in hierarchy may already exists but at least one folder must be created.
-            // If no one folder created then ItemAlreadyExistException is thrown.
-            Path currentPath = parent.getInternalPath();
-            Path newPath = null;
-            java.io.File newIoFile = null;
-            for (String element : Path.fromString(name).elements()) {
-                currentPath = currentPath.newPath(element);
-                java.io.File currentIoFile = new java.io.File(ioRoot, toIoPath(currentPath));
-                if (currentIoFile.mkdir()) {
-                    newPath = currentPath;
-                    newIoFile = currentIoFile;
-                }
-            }
-
-            if (newPath == null) {
-                // Folder or folder hierarchy already exists.
-                throw new ConflictException(String.format("Item '%s' already exists. ", parent.getInternalPath().newPath(name)));
-            }
-
-            // Return first created folder, e.g. assume we need create: folder1/folder2/folder3 in specified folder.
-            // If folder1 already exists then return folder2 as first created in hierarchy.
-            final VirtualFileImpl newVirtualFile = new VirtualFileImpl(newIoFile, newPath, pathToId(newPath), this);
-            eventService.publish(new CreateEvent(workspaceId, newVirtualFile.getPath(), true));
-            return newVirtualFile;
-        } finally {
-            parentLock.release();
+        if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(
+                    String.format("Unable create new folder in '%s'. Operation not permitted. ", parent.getPath()));
         }
+        // Name may be hierarchical, e.g. folder1/folder2/folder3.
+        // Some folder in hierarchy may already exists but at least one folder must be created.
+        // If no one folder created then ItemAlreadyExistException is thrown.
+        Path currentPath = parent.getVirtualFilePath();
+        Path newPath = null;
+        java.io.File newIoFile = null;
+        for (String element : Path.fromString(name).elements()) {
+            currentPath = currentPath.newPath(element);
+            java.io.File currentIoFile = new java.io.File(ioRoot, toIoPath(currentPath));
+            if (currentIoFile.mkdir()) {
+                newPath = currentPath;
+                newIoFile = currentIoFile;
+            }
+        }
+
+        if (newPath == null) {
+            // Folder or folder hierarchy already exists.
+            throw new ConflictException(String.format("Item '%s' already exists. ", parent.getVirtualFilePath().newPath(name)));
+        }
+
+        // Return first created folder, e.g. assume we need create: folder1/folder2/folder3 in specified folder.
+        // If folder1 already exists then return folder2 as first created in hierarchy.
+        final VirtualFileImpl newVirtualFile = new VirtualFileImpl(newIoFile, newPath, pathToId(newPath), this);
+        eventService.publish(new CreateEvent(workspaceId, newVirtualFile.getPath(), true));
+        return newVirtualFile;
     }
 
 
     VirtualFileImpl copy(VirtualFileImpl source, VirtualFileImpl parent) throws ForbiddenException, ConflictException, ServerException {
-        if (source.getInternalPath().equals(parent.getInternalPath())) {
+        if (source.getVirtualFilePath().equals(parent.getVirtualFilePath())) {
             throw new ForbiddenException("Item cannot be copied to itself. ");
         }
         if (!parent.isFolder()) {
             throw new ForbiddenException("Unable copy item. Item specified as parent is not a folder. ");
         }
-        PathLockFactory.PathLock sourceLock = null;
-        PathLockFactory.PathLock parentLock = null;
-        try {
-            sourceLock = pathLockFactory.getLock(source.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-            parentLock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-            if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable copy item '%s' to %s. Operation not permitted. ",
-                                                           source.getPath(), parent.getPath()));
-            }
-            final Path newPath = parent.getInternalPath().newPath(source.getName());
-            final VirtualFileImpl destination =
-                    new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
-            if (destination.exists()) {
-                throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
-            }
-            doCopy(source, destination);
-            eventService.publish(new CreateEvent(workspaceId, destination.getPath(), source.isFolder()));
-            return destination;
-        } finally {
-            if (sourceLock != null) {
-                sourceLock.release();
-            }
-            if (parentLock != null) {
-                parentLock.release();
-            }
+        if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable copy item '%s' to %s. Operation not permitted. ",
+                                                       source.getPath(), parent.getPath()));
         }
+        final Path newPath = parent.getVirtualFilePath().newPath(source.getName());
+        final VirtualFileImpl destination =
+                new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
+        if (destination.exists()) {
+            throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
+        }
+        doCopy(source, destination);
+        eventService.publish(new CreateEvent(workspaceId, destination.getPath(), source.isFolder()));
+        return destination;
     }
 
 
-    // UNDER LOCK
     private void doCopy(VirtualFileImpl source, VirtualFileImpl destination) throws ServerException {
-        // Source is locked, but destination is not.
-        // It looks like not necessary to lock destination path since it does not exists yet.
-        final java.io.File sourceMetadataFile = getMetadataFile(source.getInternalPath());
-        final java.io.File destinationMetadataFile = getMetadataFile(destination.getInternalPath());
         try {
             // First copy metadata (properties) for source.
             // If we do in this way and fail cause to any i/o or
@@ -643,10 +634,12 @@ public class FSMountPoint implements MountPoint {
                         public boolean accept(java.io.File dir, String name) {
                             final String testPath = dir.getAbsolutePath() + java.io.File.separatorChar + name;
                             for (VirtualFileImpl skipFile : skipList) {
-                                java.io.File metadataFile;
-                                if (testPath.startsWith(skipFile.getIoFile().getAbsolutePath())
-                                    || ((metadataFile = getMetadataFile(skipFile.getInternalPath())).exists() &&
-                                        testPath.startsWith(metadataFile.getAbsolutePath()))) {
+                                if (testPath.startsWith(skipFile.getIoFile().getAbsolutePath())) {
+                                    return false;
+                                }
+                                final java.io.File metadataFile =
+                                        new java.io.File(ioRoot, toIoPath(getMetadataFilePath(skipFile.getVirtualFilePath())));
+                                if (metadataFile.exists() && testPath.startsWith(metadataFile.getAbsolutePath())) {
                                     return false;
                                 }
                             }
@@ -656,6 +649,9 @@ public class FSMountPoint implements MountPoint {
                 }
             }
 
+            final java.io.File sourceMetadataFile = new java.io.File(ioRoot, toIoPath(getMetadataFilePath(source.getVirtualFilePath())));
+            final java.io.File destinationMetadataFile =
+                    new java.io.File(ioRoot, toIoPath(getMetadataFilePath(destination.getVirtualFilePath())));
             if (sourceMetadataFile.exists()) {
                 nioCopy(sourceMetadataFile, destinationMetadataFile, filter);
             }
@@ -685,60 +681,54 @@ public class FSMountPoint implements MountPoint {
         }
         final String sourcePath = virtualFile.getPath();
         final VirtualFileImpl parent = getParent(virtualFile);
-        final PathLockFactory.PathLock parentLock =
-                pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable rename item '%s'. Operation not permitted. ", sourcePath));
-            }
-            if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
-                throw new ForbiddenException(String.format("Unable rename file '%s'. File is locked. ", sourcePath));
-            }
-            final String name = virtualFile.getName();
-            final VirtualFileImpl renamed;
-            if (!(newName == null || name.equals(newName))) {
-                final Path newPath = virtualFile.getInternalPath().getParent().newPath(newName);
-                renamed = new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
-                if (renamed.exists()) {
-                    throw new ConflictException(String.format("Item '%s' already exists. ", renamed.getName()));
-                }
-                // use copy and delete
-                doCopy(virtualFile, renamed);
-                // permissions is not copied with 'doCopy' method, copy them now if any
-                final AccessControlList sourceAcl = getACL(virtualFile);
-                if (!sourceAcl.isEmpty()) {
-                    final java.io.File renamedAclFile = getAclFile(renamed.getInternalPath());
-                    DataOutputStream dos = null;
-                    try {
-                        // Ignore result of 'mkdirs' here. If we are failed to create directory
-                        // We will get FileNotFoundException at the next line when try to create FileOutputStream.
-                        renamedAclFile.getParentFile().mkdirs();
-                        dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(renamedAclFile)));
-                        aclSerializer.write(dos, sourceAcl);
-                    } catch (IOException e) {
-                        String msg = String.format("Unable save ACL for '%s'. ", virtualFile.getPath());
-                        LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
-                        throw new ServerException(msg);
-                    } finally {
-                        closeQuietly(dos);
-                    }
-                }
-                doDelete(virtualFile, lockToken);
-            } else {
-                renamed = virtualFile;
-            }
-
-            if (newMediaType != null) {
-                setProperty(renamed, "vfs:mimeType", newMediaType);
-                if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
-                    LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
-                }
-            }
-            eventService.publish(new RenameEvent(workspaceId, renamed.getPath(), sourcePath, renamed.isFolder()));
-            return renamed;
-        } finally {
-            parentLock.release();
+        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable rename item '%s'. Operation not permitted. ", sourcePath));
         }
+        if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
+            throw new ForbiddenException(String.format("Unable rename file '%s'. File is locked. ", sourcePath));
+        }
+        final String name = virtualFile.getName();
+        final VirtualFileImpl renamed;
+        if (!(newName == null || name.equals(newName))) {
+            final Path newPath = virtualFile.getVirtualFilePath().getParent().newPath(newName);
+            renamed = new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
+            if (renamed.exists()) {
+                throw new ConflictException(String.format("Item '%s' already exists. ", renamed.getName()));
+            }
+            // use copy and delete
+            doCopy(virtualFile, renamed);
+            // permissions is not copied with 'doCopy' method, copy them now if any
+            final AccessControlList sourceAcl = getACL(virtualFile);
+            if (!sourceAcl.isEmpty()) {
+                final java.io.File renamedAclFile = new java.io.File(ioRoot, toIoPath(getAclFilePath(renamed.getVirtualFilePath())));
+                DataOutputStream dos = null;
+                try {
+                    // Ignore result of 'mkdirs' here. If we are failed to create directory
+                    // We will get FileNotFoundException at the next line when try to create FileOutputStream.
+                    renamedAclFile.getParentFile().mkdirs();
+                    dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(renamedAclFile)));
+                    aclSerializer.write(dos, sourceAcl);
+                } catch (IOException e) {
+                    String msg = String.format("Unable save ACL for '%s'. ", virtualFile.getPath());
+                    LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
+                    throw new ServerException(msg);
+                } finally {
+                    closeQuietly(dos);
+                }
+            }
+            doDelete(virtualFile, lockToken);
+        } else {
+            renamed = virtualFile;
+        }
+
+        if (newMediaType != null) {
+            setProperty(renamed, "vfs:mimeType", newMediaType);
+            if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
+                LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
+            }
+        }
+        eventService.publish(new RenameEvent(workspaceId, renamed.getPath(), sourcePath, renamed.isFolder()));
+        return renamed;
     }
 
 
@@ -749,52 +739,38 @@ public class FSMountPoint implements MountPoint {
         if (source.isRoot()) {
             throw new ForbiddenException("Unable move root folder. ");
         }
-        if (source.getInternalPath().equals(parent.getInternalPath())) {
+        if (source.getVirtualFilePath().equals(parent.getVirtualFilePath())) {
             throw new ForbiddenException("Item cannot be moved to itself. ");
         }
         if (!parent.isFolder()) {
             throw new ForbiddenException("Unable move. Item specified as parent is not a folder. ");
         }
-        if (source.isFolder() && parent.getInternalPath().isChild(source.getInternalPath())) {
+        if (source.isFolder() && parent.getVirtualFilePath().isChild(source.getVirtualFilePath())) {
             throw new ForbiddenException(String.format("Unable move item '%s' to '%s'. Item may not have itself as parent. ",
                                                        sourcePath, parentPath));
         }
 
-        PathLockFactory.PathLock sourceLock = null;
-        PathLockFactory.PathLock parentLock = null;
-        try {
-            sourceLock = pathLockFactory.getLock(source.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-            parentLock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-
-            if (!(hasPermission(source, BasicPermissions.WRITE.value(), true)
-                  && hasPermission(parent, BasicPermissions.WRITE.value(), true))) {
-                throw new ForbiddenException(
-                        String.format("Unable move item '%s' to %s. Operation not permitted. ", sourcePath, parentPath));
-            }
-            // Even we check lock before delete original file check it here also to have better behaviour.
-            // Prevent even copy original file if we already know it is locked.
-            if (source.isFile() && !validateLockTokenIfLocked(source, lockToken)) {
-                throw new ForbiddenException(String.format("Unable move file '%s'. File is locked. ", sourcePath));
-            }
-            final Path newPath = parent.getInternalPath().newPath(source.getName());
-            VirtualFileImpl destination =
-                    new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
-            if (destination.exists()) {
-                throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
-            }
-            // use copy and delete
-            doCopy(source, destination);
-            doDelete(source, lockToken);
-            eventService.publish(new MoveEvent(workspaceId, destination.getPath(), sourcePath, destination.isFolder()));
-            return destination;
-        } finally {
-            if (sourceLock != null) {
-                sourceLock.release();
-            }
-            if (parentLock != null) {
-                parentLock.release();
-            }
+        if (!(hasPermission(source, BasicPermissions.WRITE.value(), true)
+              && hasPermission(parent, BasicPermissions.WRITE.value(), true))) {
+            throw new ForbiddenException(
+                    String.format("Unable move item '%s' to %s. Operation not permitted. ", sourcePath, parentPath));
         }
+        // Even we check lock before delete original file check it here also to have better behaviour.
+        // Prevent even copy original file if we already know it is locked.
+        if (source.isFile() && !validateLockTokenIfLocked(source, lockToken)) {
+            throw new ForbiddenException(String.format("Unable move file '%s'. File is locked. ", sourcePath));
+        }
+        final Path newPath = parent.getVirtualFilePath().newPath(source.getName());
+        VirtualFileImpl destination =
+                new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(newPath)), newPath, pathToId(newPath), this);
+        if (destination.exists()) {
+            throw new ConflictException(String.format("Item '%s' already exists. ", newPath));
+        }
+        // use copy and delete
+        doCopy(source, destination);
+        doDelete(source, lockToken);
+        eventService.publish(new MoveEvent(workspaceId, destination.getPath(), sourcePath, destination.isFolder()));
+        return destination;
     }
 
 
@@ -803,7 +779,7 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException(String.format("Unable get content. Item '%s' is not a file. ", virtualFile.getPath()));
         }
 
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getVirtualFilePath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final java.io.File ioFile = virtualFile.getIoFile();
             FileInputStream fIn = null;
@@ -859,45 +835,52 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException(String.format("Unable update content. Item '%s' is not file. ", virtualFile.getPath()));
         }
 
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
+        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(
+                    String.format("Unable update content of file '%s'. Operation not permitted. ", virtualFile.getPath()));
+        }
+        if (!validateLockTokenIfLocked(virtualFile, lockToken)) {
+            throw new ForbiddenException(String.format("Unable update content of file '%s'. File is locked. ", virtualFile.getPath()));
+        }
+
+        if (updateMediaType) {
+            doUpdateContent(virtualFile, mediaType, content);
+        } else {
+            doUpdateContent(virtualFile, content);
+        }
+
+        if (searcherProvider != null) {
+            try {
+                searcherProvider.getSearcher(this, true).update(virtualFile);
+            } catch (ServerException e) {
+                LOG.error(e.getMessage(), e);
+            }
+        }
+        eventService.publish(new UpdateContentEvent(workspaceId, virtualFile.getPath()));
+    }
+
+
+    private void doUpdateContent(VirtualFileImpl virtualFile, String mediaType, InputStream content) throws ServerException {
+        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getVirtualFilePath(), true).acquire(LOCK_FILE_TIMEOUT);
         try {
-            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(
-                        String.format("Unable update content of file '%s'. Operation not permitted. ", virtualFile.getPath()));
-            }
-            if (!validateLockTokenIfLocked(virtualFile, lockToken)) {
-                throw new ForbiddenException(String.format("Unable update content of file '%s'. File is locked. ", virtualFile.getPath()));
-            }
-
-            if (updateMediaType) {
-                doUpdateContent(virtualFile, mediaType, content);
-            } else {
-                doUpdateContent(virtualFile, content);
-            }
-
-            if (searcherProvider != null) {
-                try {
-                    searcherProvider.getSearcher(this, true).update(virtualFile);
-                } catch (ServerException e) {
-                    LOG.error(e.getMessage(), e);
-                }
-            }
-            eventService.publish(new UpdateContentEvent(workspaceId, virtualFile.getPath()));
+            _doUpdateContent(virtualFile, content);
+            setProperty(virtualFile, "vfs:mimeType", mediaType);
         } finally {
             lock.release();
         }
     }
 
-
-    // UNDER LOCK
-    private void doUpdateContent(VirtualFileImpl virtualFile, String mediaType, InputStream content) throws ServerException {
-        doUpdateContent(virtualFile, content);
-        setProperty(virtualFile, "vfs:mimeType", mediaType);
+    private void doUpdateContent(VirtualFileImpl virtualFile, InputStream content) throws ServerException {
+        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getVirtualFilePath(), true).acquire(LOCK_FILE_TIMEOUT);
+        try {
+            _doUpdateContent(virtualFile, content);
+        } finally {
+            lock.release();
+        }
     }
 
-
     // UNDER LOCK
-    private void doUpdateContent(VirtualFileImpl virtualFile, InputStream content) throws ServerException {
+    private void _doUpdateContent(VirtualFileImpl virtualFile, InputStream content) throws ServerException {
         FileOutputStream fOut = null;
         try {
             fOut = new FileOutputStream(virtualFile.getIoFile());
@@ -920,25 +903,19 @@ public class FSMountPoint implements MountPoint {
         if (virtualFile.isRoot()) {
             throw new ForbiddenException("Unable delete root folder. ");
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
         final String myPath = virtualFile.getPath();
         final boolean folder = virtualFile.isFolder();
-        try {
-            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable delete item '%s'. Operation not permitted. ", myPath));
-            }
-            if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
-                throw new ForbiddenException(String.format("Unable delete item '%s'. Item is locked. ", myPath));
-            }
-
-            doDelete(virtualFile, lockToken);
-            eventService.publish(new DeleteEvent(workspaceId, myPath, folder));
-        } finally {
-            lock.release();
+        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable delete item '%s'. Operation not permitted. ", myPath));
         }
+        if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
+            throw new ForbiddenException(String.format("Unable delete item '%s'. Item is locked. ", myPath));
+        }
+
+        doDelete(virtualFile, lockToken);
+        eventService.publish(new DeleteEvent(workspaceId, myPath, folder));
     }
 
-    // UNDER LOCK
     private void doDelete(VirtualFileImpl virtualFile, String lockToken) throws ForbiddenException, ServerException {
         if (virtualFile.isFolder()) {
             final LinkedList<VirtualFile> q = new LinkedList<>();
@@ -982,7 +959,7 @@ public class FSMountPoint implements MountPoint {
         }
 
         // delete ACL file
-        final java.io.File aclFile = getAclFile(virtualFile.getInternalPath());
+        final java.io.File aclFile = new java.io.File(ioRoot, toIoPath(getAclFilePath(virtualFile.getVirtualFilePath())));
         if (aclFile.delete()) {
             if (aclFile.exists()) {
                 LOG.error("Unable delete ACL file {}", aclFile);
@@ -991,7 +968,7 @@ public class FSMountPoint implements MountPoint {
         }
 
         // delete metadata file
-        final java.io.File metadataFile = getMetadataFile(virtualFile.getInternalPath());
+        final java.io.File metadataFile = new java.io.File(ioRoot, toIoPath(getMetadataFilePath(virtualFile.getVirtualFilePath())));
         if (metadataFile.delete()) {
             if (metadataFile.exists()) {
                 LOG.error("Unable delete file metadata {}", metadataFile);
@@ -1034,65 +1011,60 @@ public class FSMountPoint implements MountPoint {
         if (!virtualFile.isFolder()) {
             throw new ForbiddenException(String.format("Unable export to zip. Item '%s' is not a folder. ", virtualFile.getPath()));
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), false).acquire(LOCK_FILE_TIMEOUT);
+        java.io.File zipFile = null;
+        FileOutputStream out = null;
         try {
-            java.io.File zipFile = null;
-            FileOutputStream out = null;
-            try {
-                zipFile = java.io.File.createTempFile("export", ".zip");
-                out = new FileOutputStream(zipFile);
-                final ZipOutputStream zipOut = new ZipOutputStream(out);
-                final LinkedList<VirtualFile> q = new LinkedList<>();
-                q.add(virtualFile);
-                final int zipEntryNameTrim = virtualFile.getInternalPath().length();
-                final byte[] buff = new byte[COPY_BUFFER_SIZE];
-                while (!q.isEmpty()) {
-                    for (VirtualFile current : doGetChildren((VirtualFileImpl)q.pop(), SERVICE_GIT_DIR_FILTER)) {
-                        // (1) Check filter.
-                        // (2) Check permission directly for current file only.
-                        // We already know parent accessible for current user otherwise we should not be here.
-                        // Ignore item if don't have permission to read it.
-                        if (filter.accept(current) && hasPermission((VirtualFileImpl)current, BasicPermissions.READ.value(), false)) {
-                            final String zipEntryName =
-                                    ((VirtualFileImpl)current).getInternalPath().subPath(zipEntryNameTrim).toString().substring(1);
-                            if (current.isFile()) {
-                                final ZipEntry zipEntry = new ZipEntry(zipEntryName);
-                                zipEntry.setTime(virtualFile.getLastModificationDate());
-                                zipOut.putNextEntry(zipEntry);
-                                InputStream in = null;
-                                try {
-                                    in = new FileInputStream(((VirtualFileImpl)current).getIoFile());
-                                    int r;
-                                    while ((r = in.read(buff)) != -1) {
-                                        zipOut.write(buff, 0, r);
-                                    }
-                                } finally {
-                                    closeQuietly(in);
+            zipFile = java.io.File.createTempFile("export", ".zip");
+            out = new FileOutputStream(zipFile);
+            final ZipOutputStream zipOut = new ZipOutputStream(out);
+            final LinkedList<VirtualFile> q = new LinkedList<>();
+            q.add(virtualFile);
+            final int zipEntryNameTrim = virtualFile.getVirtualFilePath().length();
+            final byte[] buff = new byte[COPY_BUFFER_SIZE];
+            while (!q.isEmpty()) {
+                for (VirtualFile current : doGetChildren((VirtualFileImpl)q.pop(), SERVICE_GIT_DIR_FILTER)) {
+                    // (1) Check filter.
+                    // (2) Check permission directly for current file only.
+                    // We already know parent accessible for current user otherwise we should not be here.
+                    // Ignore item if don't have permission to read it.
+                    if (filter.accept(current) && hasPermission((VirtualFileImpl)current, BasicPermissions.READ.value(), false)) {
+                        final String zipEntryName =
+                                ((VirtualFileImpl)current).getVirtualFilePath().subPath(zipEntryNameTrim).toString().substring(1);
+                        if (current.isFile()) {
+                            final ZipEntry zipEntry = new ZipEntry(zipEntryName);
+                            zipEntry.setTime(virtualFile.getLastModificationDate());
+                            zipOut.putNextEntry(zipEntry);
+                            InputStream in = null;
+                            try {
+                                in = new FileInputStream(((VirtualFileImpl)current).getIoFile());
+                                int r;
+                                while ((r = in.read(buff)) != -1) {
+                                    zipOut.write(buff, 0, r);
                                 }
-                                zipOut.closeEntry();
-                            } else if (current.isFolder()) {
-                                final ZipEntry zipEntry = new ZipEntry(zipEntryName + '/');
-                                zipEntry.setTime(0);
-                                zipOut.putNextEntry(zipEntry);
-                                q.add(current);
-                                zipOut.closeEntry();
+                            } finally {
+                                closeQuietly(in);
                             }
+                            zipOut.closeEntry();
+                        } else if (current.isFolder()) {
+                            final ZipEntry zipEntry = new ZipEntry(zipEntryName + '/');
+                            zipEntry.setTime(0);
+                            zipOut.putNextEntry(zipEntry);
+                            q.add(current);
+                            zipOut.closeEntry();
                         }
                     }
                 }
-                closeQuietly(zipOut);
-                final String name = virtualFile.getName() + ".zip";
-                return new ContentStream(name, new DeleteOnCloseFileInputStream(zipFile), "application/zip", zipFile.length(), new Date());
-            } catch (IOException | RuntimeException ioe) {
-                if (zipFile != null) {
-                    zipFile.delete();
-                }
-                throw new ServerException(ioe.getMessage(), ioe);
-            } finally {
-                closeQuietly(out);
             }
+            closeQuietly(zipOut);
+            final String name = virtualFile.getName() + ".zip";
+            return new ContentStream(name, new DeleteOnCloseFileInputStream(zipFile), "application/zip", zipFile.length(), new Date());
+        } catch (IOException | RuntimeException ioe) {
+            if (zipFile != null) {
+                zipFile.delete();
+            }
+            throw new ServerException(ioe.getMessage(), ioe);
         } finally {
-            lock.release();
+            closeQuietly(out);
         }
     }
 
@@ -1108,81 +1080,75 @@ public class FSMountPoint implements MountPoint {
         } catch (IOException e) {
             throw new ServerException(e.getMessage(), e);
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(parent.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
+        if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable import from zip to '%s'. Operation not permitted. ", parent.getPath()));
+        }
+
+        ZipInputStream zip = null;
         try {
-            if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable import from zip to '%s'. Operation not permitted. ", parent.getPath()));
-            }
-
-            ZipInputStream zip = null;
-            try {
-                zip = new ZipInputStream(zipContent.zippedData);
-                // Wrap zip stream to prevent close it. We can pass stream to other method and it can read content of current
-                // ZipEntry but not able to close original stream of ZIPed data.
-                InputStream noCloseZip = new NotClosableInputStream(zip);
-                ZipEntry zipEntry;
-                while ((zipEntry = zip.getNextEntry()) != null) {
-                    VirtualFileImpl current = parent;
-                    final Path relPath = Path.fromString(zipEntry.getName());
-                    final String name = relPath.getName();
-                    if (relPath.length() > 1) {
-                        // create all required parent directories
-                        final Path parentPath = parent.getInternalPath().newPath(relPath.subPath(0, relPath.length() - 1));
-                        current = new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(parentPath)), parentPath, pathToId(parentPath),
-                                                      this);
-                        if (!(current.exists() || current.getIoFile().mkdirs())) {
-                            throw new ServerException(String.format("Unable create directory '%s' ", parentPath));
-                        }
+            zip = new ZipInputStream(zipContent.zippedData);
+            // Wrap zip stream to prevent close it. We can pass stream to other method and it can read content of current
+            // ZipEntry but not able to close original stream of ZIPed data.
+            InputStream noCloseZip = new NotClosableInputStream(zip);
+            ZipEntry zipEntry;
+            while ((zipEntry = zip.getNextEntry()) != null) {
+                VirtualFileImpl current = parent;
+                final Path relPath = Path.fromString(zipEntry.getName());
+                final String name = relPath.getName();
+                if (relPath.length() > 1) {
+                    // create all required parent directories
+                    final Path parentPath = parent.getVirtualFilePath().newPath(relPath.subPath(0, relPath.length() - 1));
+                    current = new VirtualFileImpl(new java.io.File(ioRoot, toIoPath(parentPath)), parentPath, pathToId(parentPath), this);
+                    if (!(current.exists() || current.getIoFile().mkdirs())) {
+                        throw new ServerException(String.format("Unable create directory '%s' ", parentPath));
                     }
-                    final Path newPath = current.getInternalPath().newPath(name);
-                    if (zipEntry.isDirectory()) {
-                        final java.io.File dir = new java.io.File(current.getIoFile(), name);
-                        if (!(dir.exists() || dir.mkdir())) {
-                            throw new ServerException(String.format("Unable create directory '%s' ", newPath));
-                        }
-                    } else {
-                        final VirtualFileImpl file =
-                                new VirtualFileImpl(new java.io.File(current.getIoFile(), name), newPath, pathToId(newPath), this);
-                        if (file.exists()) {
-                            if (isLocked(file)) {
-                                throw new ForbiddenException(String.format("File '%s' already exists and locked. ", file.getPath()));
-                            }
-                            if (!hasPermission(file, BasicPermissions.WRITE.value(), true)) {
-                                throw new ForbiddenException(
-                                        String.format("Unable update file '%s'. Operation not permitted. ", file.getPath()));
-                            }
-                        }
-
-                        try {
-                            if (!file.getIoFile().createNewFile()) { // atomic
-                                if (!overwrite) {
-                                    throw new ConflictException(String.format("File '%s' already exists. ", file.getPath()));
-                                }
-                            }
-                        } catch (IOException e) {
-                            String msg = String.format("Unable create new file '%s'. ", newPath);
-                            LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
-                            throw new ServerException(msg);
-                        }
-
-                        doUpdateContent(file, noCloseZip);
-                    }
-                    zip.closeEntry();
                 }
-                if (searcherProvider != null) {
+                final Path newPath = current.getVirtualFilePath().newPath(name);
+                if (zipEntry.isDirectory()) {
+                    final java.io.File dir = new java.io.File(current.getIoFile(), name);
+                    if (!(dir.exists() || dir.mkdir())) {
+                        throw new ServerException(String.format("Unable create directory '%s' ", newPath));
+                    }
+                } else {
+                    final VirtualFileImpl file =
+                            new VirtualFileImpl(new java.io.File(current.getIoFile(), name), newPath, pathToId(newPath), this);
+                    if (file.exists()) {
+                        if (isLocked(file)) {
+                            throw new ForbiddenException(String.format("File '%s' already exists and locked. ", file.getPath()));
+                        }
+                        if (!hasPermission(file, BasicPermissions.WRITE.value(), true)) {
+                            throw new ForbiddenException(
+                                    String.format("Unable update file '%s'. Operation not permitted. ", file.getPath()));
+                        }
+                    }
+
                     try {
-                        searcherProvider.getSearcher(this, true).add(parent);
-                    } catch (ServerException e) {
-                        LOG.error(e.getMessage(), e);
+                        if (!file.getIoFile().createNewFile()) { // atomic
+                            if (!overwrite) {
+                                throw new ConflictException(String.format("File '%s' already exists. ", file.getPath()));
+                            }
+                        }
+                    } catch (IOException e) {
+                        String msg = String.format("Unable create new file '%s'. ", newPath);
+                        LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
+                        throw new ServerException(msg);
                     }
+
+                    doUpdateContent(file, noCloseZip);
                 }
-            } catch (IOException e) {
-                throw new ServerException(e.getMessage(), e);
-            } finally {
-                closeQuietly(zip);
+                zip.closeEntry();
             }
+            if (searcherProvider != null) {
+                try {
+                    searcherProvider.getSearcher(this, true).add(parent);
+                } catch (ServerException e) {
+                    LOG.error(e.getMessage(), e);
+                }
+            }
+        } catch (IOException e) {
+            throw new ServerException(e.getMessage(), e);
         } finally {
-            lock.release();
+            closeQuietly(zip);
         }
     }
 
@@ -1193,33 +1159,33 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException(String.format("Unable lock '%s'. Locking allowed for files only. ", virtualFile.getPath()));
         }
 
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(String.format("Unable lock '%s'. Operation not permitted. ", virtualFile.getPath()));
-            }
-            return doLock(virtualFile, timeout);
-        } finally {
-            lock.release();
+        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(String.format("Unable lock '%s'. Operation not permitted. ", virtualFile.getPath()));
         }
+        return doLock(virtualFile, timeout);
     }
 
 
-    // UNDER LOCK
     private String doLock(VirtualFileImpl virtualFile, long timeout) throws ConflictException, ServerException {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        if (NO_LOCK == lockTokensCache[index].get(virtualFile.getInternalPath())) // causes read from file if need.
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        if (NO_LOCK == lockTokensCache[index].get(virtualFile.getVirtualFilePath())) // causes read from file if need.
         {
             final String lockToken = NameGenerator.generate(null, 16);
             final long expired = timeout > 0 ? (System.currentTimeMillis() + timeout) : Long.MAX_VALUE;
             final FileLock fileLock = new FileLock(lockToken, expired);
             DataOutputStream dos = null;
             try {
-                java.io.File lockLockFile = getLockFile(virtualFile.getInternalPath());
-                lockLockFile.getParentFile().mkdirs(); // Ignore result of 'mkdirs' here. If we are failed to create
+                final Path lockFilePath = getLockFilePath(virtualFile.getVirtualFilePath());
+                final java.io.File lockIoFile = new java.io.File(ioRoot, toIoPath(lockFilePath));
+                lockIoFile.getParentFile().mkdirs(); // Ignore result of 'mkdirs' here. If we are failed to create
                 // directory we will get FileNotFoundException at the next line when try to create FileOutputStream.
-                dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(lockLockFile)));
-                locksSerializer.write(dos, fileLock);
+                final PathLockFactory.PathLock lockFilePathLock = pathLockFactory.getLock(lockFilePath, true).acquire(LOCK_FILE_TIMEOUT);
+                try {
+                    dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(lockIoFile)));
+                    locksSerializer.write(dos, fileLock);
+                } finally {
+                    lockFilePathLock.release();
+                }
             } catch (IOException e) {
                 String msg = String.format("Unable lock file '%s'. ", virtualFile.getPath());
                 LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
@@ -1229,7 +1195,7 @@ public class FSMountPoint implements MountPoint {
             }
 
             // Save lock token in cache if lock successful.
-            lockTokensCache[index].put(virtualFile.getInternalPath(), fileLock);
+            lockTokensCache[index].put(virtualFile.getVirtualFilePath(), fileLock);
             return lockToken;
         }
 
@@ -1245,31 +1211,26 @@ public class FSMountPoint implements MountPoint {
             // Locks available for files only.
             throw new ConflictException(String.format("Item '%s' is not locked. ", virtualFile.getPath()));
         }
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            final FileLock fileLock = checkIsLockValidAndGet(virtualFile);
-            if (NO_LOCK == fileLock) {
-                throw new ConflictException(String.format("File '%s' is not locked. ", virtualFile.getPath()));
-            }
-            doUnlock(virtualFile, fileLock, lockToken);
-        } finally {
-            lock.release();
+        final FileLock fileLock = checkIsLockValidAndGet(virtualFile);
+        if (NO_LOCK == fileLock) {
+            throw new ConflictException(String.format("File '%s' is not locked. ", virtualFile.getPath()));
         }
+        doUnlock(virtualFile, fileLock, lockToken);
     }
 
     // UNDER LOCK
     private void doUnlock(VirtualFileImpl virtualFile, FileLock lock, String lockToken) throws ForbiddenException, ServerException {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
         try {
             if (!lock.getLockToken().equals(lockToken)) {
                 throw new ForbiddenException(String.format("Unable unlock file '%s'. Lock token does not match. ", virtualFile.getPath()));
             }
-            final java.io.File lockIoFile = getLockFile(virtualFile.getInternalPath());
+            final java.io.File lockIoFile = new java.io.File(ioRoot, toIoPath(getLockFilePath(virtualFile.getVirtualFilePath())));
             if (!lockIoFile.delete()) {
                 throw new IOException(String.format("Unable delete lock file %s. ", lockIoFile));
             }
             // Mark as unlocked in cache.
-            lockTokensCache[index].put(virtualFile.getInternalPath(), NO_LOCK);
+            lockTokensCache[index].put(virtualFile.getVirtualFilePath(), NO_LOCK);
         } catch (IOException e) {
             String msg = String.format("Unable unlock file '%s'. ", virtualFile.getPath());
             LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
@@ -1283,21 +1244,21 @@ public class FSMountPoint implements MountPoint {
     }
 
     private FileLock checkIsLockValidAndGet(VirtualFileImpl virtualFile) {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
         // causes read from file if need
-        final FileLock lock = lockTokensCache[index].get(virtualFile.getInternalPath());
+        final FileLock lock = lockTokensCache[index].get(virtualFile.getVirtualFilePath());
         if (NO_LOCK == lock) {
             return NO_LOCK;
         }
         if (lock.getExpired() < System.currentTimeMillis()) {
-            final java.io.File lockIoFile = getLockFile(virtualFile.getInternalPath());
+            final java.io.File lockIoFile = new java.io.File(ioRoot, toIoPath(getLockFilePath(virtualFile.getVirtualFilePath())));
             if (!lockIoFile.delete()) {
                 if (lockIoFile.exists()) {
                     // just warn here
                     LOG.warn("Unable delete lock file %s. ", lockIoFile);
                 }
             }
-            lockTokensCache[index].put(virtualFile.getInternalPath(), NO_LOCK);
+            lockTokensCache[index].put(virtualFile.getVirtualFilePath(), NO_LOCK);
             return NO_LOCK;
         }
         return lock;
@@ -1311,81 +1272,81 @@ public class FSMountPoint implements MountPoint {
     }
 
 
-    private java.io.File getLockFile(Path path) {
-        java.io.File locksDir = path.isRoot()
-                                ? new java.io.File(ioRoot, LOCKS_DIR)
-                                : new java.io.File(ioRoot, toIoPath(path.getParent().newPath(LOCKS_DIR)));
-        return new java.io.File(locksDir, path.getName() + LOCK_FILE_SUFFIX);
+    private Path getLockFilePath(Path virtualFilePath) {
+        return virtualFilePath.isRoot()
+               ? virtualFilePath.newPath(LOCKS_DIR, virtualFilePath.getName() + LOCK_FILE_SUFFIX)
+               : virtualFilePath.getParent().newPath(LOCKS_DIR, virtualFilePath.getName() + LOCK_FILE_SUFFIX);
     }
 
    /* ============ ACCESS CONTROL  ============ */
 
     AccessControlList getACL(VirtualFileImpl virtualFile) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
-        return new AccessControlList(aclCache[virtualFile.getInternalPath().hashCode() & MASK].get(virtualFile.getInternalPath()));
+        return new AccessControlList(aclCache[virtualFile.getVirtualFilePath().hashCode() & MASK].get(virtualFile.getVirtualFilePath()));
     }
 
 
     void updateACL(VirtualFileImpl virtualFile, List<AccessControlEntry> acl, boolean override, String lockToken)
             throws ForbiddenException, ServerException {
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        final AccessControlList actualACL = aclCache[index].get(virtualFile.getVirtualFilePath());
+
+        if (!hasPermission(virtualFile, BasicPermissions.UPDATE_ACL.value(), true)) {
+            throw new ForbiddenException(String.format("Unable update ACL for '%s'. Operation not permitted. ", virtualFile.getPath()));
+        }
+
+        if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
+            throw new ForbiddenException(String.format("Unable update ACL of item '%s'. Item is locked. ", virtualFile.getPath()));
+        }
+
+        // 1. make copy of ACL
+        final AccessControlList copy = new AccessControlList(actualACL);
+        // 2. update ACL copy
+        copy.update(acl, override);
+        // 3. save updated ACL (write in file)
+        DataOutputStream dos = null;
         try {
-            final int index = virtualFile.getInternalPath().hashCode() & MASK;
-            final AccessControlList actualACL = aclCache[index].get(virtualFile.getInternalPath());
-
-            if (!hasPermission(virtualFile, BasicPermissions.UPDATE_ACL.value(), true)) {
-                throw new ForbiddenException(String.format("Unable update ACL for '%s'. Operation not permitted. ", virtualFile.getPath()));
-            }
-
-            if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
-                throw new ForbiddenException(String.format("Unable update ACL of item '%s'. Item is locked. ", virtualFile.getPath()));
-            }
-
-            // 1. make copy of ACL
-            final AccessControlList copy = new AccessControlList(actualACL);
-            // 2. update ACL copy
-            copy.update(acl, override);
-            // 3. save updated ACL (write in file)
-            DataOutputStream dos = null;
-            try {
-                java.io.File aclFile = getAclFile(virtualFile.getInternalPath());
-                if (copy.isEmpty()) {
-                    if (!aclFile.delete()) {
-                        if (aclFile.exists()) {
-                            throw new IOException(String.format("Unable delete file '%s'. ", aclFile));
-                        }
+            final Path aclFilePath = getAclFilePath(virtualFile.getVirtualFilePath());
+            final java.io.File aclFile = new java.io.File(ioRoot, toIoPath(aclFilePath));
+            if (copy.isEmpty()) {
+                if (!aclFile.delete()) {
+                    if (aclFile.exists()) {
+                        throw new IOException(String.format("Unable delete file '%s'. ", aclFile));
                     }
-                } else {
-                    aclFile.getParentFile().mkdirs(); // Ignore result of 'mkdirs' here. If we are failed to create directory
-                    // we will get FileNotFoundException at the next line when try to create FileOutputStream.
+                }
+            } else {
+                aclFile.getParentFile().mkdirs(); // Ignore result of 'mkdirs' here. If we are failed to create directory
+                // we will get FileNotFoundException at the next line when try to create FileOutputStream.
+                final PathLockFactory.PathLock lock = pathLockFactory.getLock(aclFilePath, true).acquire(LOCK_FILE_TIMEOUT);
+                try {
                     dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(aclFile)));
                     aclSerializer.write(dos, copy);
+                } finally {
+                    lock.release();
                 }
-            } catch (IOException e) {
-                String msg = String.format("Unable save ACL for '%s'. ", virtualFile.getPath());
-                LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
-                throw new ServerException(msg);
-            } finally {
-                closeQuietly(dos);
             }
-
-            // 4. update cache
-            aclCache[index].put(virtualFile.getInternalPath(), copy);
-            // 5. update last modification time
-            if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
-                LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
-            }
-
-            eventService.publish(new UpdateACLEvent(workspaceId, virtualFile.getPath(), virtualFile.isFolder()));
+        } catch (IOException e) {
+            String msg = String.format("Unable save ACL for '%s'. ", virtualFile.getPath());
+            LOG.error(msg + e.getMessage(), e); // More details in log but do not show internal error to caller.
+            throw new ServerException(msg);
         } finally {
-            lock.release();
+            closeQuietly(dos);
         }
+
+        // 4. update cache
+        aclCache[index].put(virtualFile.getVirtualFilePath(), copy);
+        // 5. update last modification time
+        if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
+            LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
+        }
+
+        eventService.publish(new UpdateACLEvent(workspaceId, virtualFile.getPath(), virtualFile.isFolder()));
     }
 
 
     private boolean hasPermission(VirtualFileImpl virtualFile, String p, boolean checkParent) {
         final VirtualFileSystemUser user = userContext.getVirtualFileSystemUser();
-        Path path = virtualFile.getInternalPath();
+        Path path = virtualFile.getVirtualFilePath();
         while (path != null) {
             final AccessControlList accessControlList = aclCache[path.hashCode() & MASK].get(path);
             if (!accessControlList.isEmpty()) {
@@ -1423,13 +1384,10 @@ public class FSMountPoint implements MountPoint {
     }
 
 
-    private java.io.File getAclFile(Path path) {
-        java.io.File aclDir = path.isRoot()
-                              ? new java.io.File(ioRoot, ACL_DIR)
-                              : new java.io.File(ioRoot, toIoPath(path.getParent().newPath(ACL_DIR)));
-        //boolean result = aclDir.mkdirs();
-        //assert result || aclDir.exists();
-        return new java.io.File(aclDir, path.getName() + ACL_FILE_SUFFIX);
+    private Path getAclFilePath(Path virtualFilePath) {
+        return virtualFilePath.isRoot()
+               ? virtualFilePath.newPath(ACL_DIR, virtualFilePath.getName() + ACL_FILE_SUFFIX)
+               : virtualFilePath.getParent().newPath(ACL_DIR, virtualFilePath.getName() + ACL_FILE_SUFFIX);
     }
 
    /* ============ METADATA  ============ */
@@ -1456,65 +1414,60 @@ public class FSMountPoint implements MountPoint {
 
     void updateProperties(VirtualFileImpl virtualFile, List<Property> properties, String lockToken)
             throws ForbiddenException, ServerException {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-                throw new ForbiddenException(
-                        String.format("Unable update properties for '%s'. Operation not permitted. ", virtualFile.getPath()));
-            }
-
-            if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
-                throw new ForbiddenException(
-                        String.format("Unable update properties of item '%s'. Item is locked. ", virtualFile.getPath()));
-            }
-
-            // 1. make copy of properties
-            final Map<String, String[]> metadata = copyMetadataMap(metadataCache[index].get(virtualFile.getInternalPath()));
-            // 2. update
-            for (Property property : properties) {
-                final String name = property.getName();
-                final List<String> value = property.getValue();
-                if (value != null) {
-                    metadata.put(name, value.toArray(new String[value.size()]));
-                } else {
-                    metadata.remove(name);
-                }
-            }
-
-            // 3. save in file
-            saveFileMetadata(virtualFile, metadata);
-            // 4. update cache
-            metadataCache[index].put(virtualFile.getInternalPath(), metadata);
-            // 5. update last modification time
-            if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
-                LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
-            }
-            eventService.publish(new UpdatePropertiesEvent(workspaceId, virtualFile.getPath(), virtualFile.isFolder()));
-        } finally {
-            lock.release();
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+            throw new ForbiddenException(
+                    String.format("Unable update properties for '%s'. Operation not permitted. ", virtualFile.getPath()));
         }
+
+        if (virtualFile.isFile() && !validateLockTokenIfLocked(virtualFile, lockToken)) {
+            throw new ForbiddenException(
+                    String.format("Unable update properties of item '%s'. Item is locked. ", virtualFile.getPath()));
+        }
+
+        // 1. make copy of properties
+        final Map<String, String[]> metadata = copyMetadataMap(metadataCache[index].get(virtualFile.getVirtualFilePath()));
+        // 2. update
+        for (Property property : properties) {
+            final String name = property.getName();
+            final List<String> value = property.getValue();
+            if (value != null) {
+                metadata.put(name, value.toArray(new String[value.size()]));
+            } else {
+                metadata.remove(name);
+            }
+        }
+
+        // 3. save in file
+        saveFileMetadata(virtualFile, metadata);
+        // 4. update cache
+        metadataCache[index].put(virtualFile.getVirtualFilePath(), metadata);
+        // 5. update last modification time
+        if (!virtualFile.getIoFile().setLastModified(System.currentTimeMillis())) {
+            LOG.warn("Unable to set timestamp to '{}'. ", virtualFile.getIoFile());
+        }
+        eventService.publish(new UpdatePropertiesEvent(workspaceId, virtualFile.getPath(), virtualFile.isFolder()));
     }
 
 
     private Map<String, String[]> getFileMetadata(VirtualFileImpl virtualFile) {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        return copyMetadataMap(metadataCache[index].get(virtualFile.getInternalPath()));
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        return copyMetadataMap(metadataCache[index].get(virtualFile.getVirtualFilePath()));
     }
 
 
     String getPropertyValue(VirtualFileImpl virtualFile, String name) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final String[] value = metadataCache[index].get(virtualFile.getInternalPath()).get(name);
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        final String[] value = metadataCache[index].get(virtualFile.getVirtualFilePath()).get(name);
         return value == null || value.length == 0 ? null : value[0];
     }
 
 
     String[] getPropertyValues(VirtualFileImpl virtualFile, String name) {
         // Do not check permission here. We already check 'read' permission when get VirtualFile.
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final String[] value = metadataCache[index].get(virtualFile.getInternalPath()).get(name);
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        final String[] value = metadataCache[index].get(virtualFile.getVirtualFilePath()).get(name);
         final String[] copyValue = new String[value.length];
         System.arraycopy(value, 0, copyValue, 0, value.length);
         return copyValue;
@@ -1527,26 +1480,21 @@ public class FSMountPoint implements MountPoint {
 
 
     void setProperty(VirtualFileImpl virtualFile, String name, String... value) throws ServerException {
-        final int index = virtualFile.getInternalPath().hashCode() & MASK;
-        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getInternalPath(), true).acquire(LOCK_FILE_TIMEOUT);
-        try {
-            // 1. make copy of properties
-            final Map<String, String[]> metadata = copyMetadataMap(metadataCache[index].get(virtualFile.getInternalPath()));
-            // 2. update
-            if (value != null) {
-                String[] copyValue = new String[value.length];
-                System.arraycopy(value, 0, copyValue, 0, value.length);
-                metadata.put(name, copyValue);
-            } else {
-                metadata.remove(name);
-            }
-            // 3. save in file
-            saveFileMetadata(virtualFile, metadata);
-            // 4. update cache
-            metadataCache[index].put(virtualFile.getInternalPath(), metadata);
-        } finally {
-            lock.release();
+        final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
+        // 1. make copy of properties
+        final Map<String, String[]> metadata = copyMetadataMap(metadataCache[index].get(virtualFile.getVirtualFilePath()));
+        // 2. update
+        if (value != null) {
+            String[] copyValue = new String[value.length];
+            System.arraycopy(value, 0, copyValue, 0, value.length);
+            metadata.put(name, copyValue);
+        } else {
+            metadata.remove(name);
         }
+        // 3. save in file
+        saveFileMetadata(virtualFile, metadata);
+        // 4. update cache
+        metadataCache[index].put(virtualFile.getVirtualFilePath(), metadata);
     }
 
 
@@ -1554,7 +1502,8 @@ public class FSMountPoint implements MountPoint {
         DataOutputStream dos = null;
 
         try {
-            final java.io.File metadataFile = getMetadataFile(virtualFile.getInternalPath());
+            final Path metadataFilePath = getMetadataFilePath(virtualFile.getVirtualFilePath());
+            final java.io.File metadataFile = new java.io.File(ioRoot, toIoPath(metadataFilePath));
             if (properties.isEmpty()) {
                 if (!metadataFile.delete()) {
                     if (metadataFile.exists()) {
@@ -1564,8 +1513,13 @@ public class FSMountPoint implements MountPoint {
             } else {
                 metadataFile.getParentFile().mkdirs(); // Ignore result of 'mkdirs' here. If we are failed to create
                 // directory we will get FileNotFoundException at the next line when try to create FileOutputStream.
-                dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(metadataFile)));
-                metadataSerializer.write(dos, properties);
+                final PathLockFactory.PathLock lock = pathLockFactory.getLock(metadataFilePath, true).acquire(LOCK_FILE_TIMEOUT);
+                try {
+                    dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(metadataFile)));
+                    metadataSerializer.write(dos, properties);
+                } finally {
+                    lock.release();
+                }
             }
         } catch (IOException e) {
             String msg = String.format("Unable save properties for '%s'. ", virtualFile.getPath());
@@ -1577,13 +1531,10 @@ public class FSMountPoint implements MountPoint {
     }
 
 
-    private java.io.File getMetadataFile(Path path) {
-        java.io.File metadataDir = path.isRoot()
-                                   ? new java.io.File(ioRoot, PROPS_DIR)
-                                   : new java.io.File(ioRoot, toIoPath(path.getParent().newPath(PROPS_DIR)));
-        //boolean result = metadataDir.mkdirs();
-        //assert result || metadataDir.exists();
-        return new java.io.File(metadataDir, path.getName() + PROPERTIES_FILE_SUFFIX);
+    private Path getMetadataFilePath(Path virtualFilePath) {
+        return virtualFilePath.isRoot()
+               ? virtualFilePath.newPath(PROPS_DIR, virtualFilePath.getName() + PROPERTIES_FILE_SUFFIX)
+               : virtualFilePath.getParent().newPath(PROPS_DIR, virtualFilePath.getName() + PROPERTIES_FILE_SUFFIX);
     }
 
    /* ============ VERSIONING ============ */

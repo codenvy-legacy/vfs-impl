@@ -323,8 +323,4 @@ public class VirtualFileImpl implements VirtualFile {
     public final java.io.File getIoFile() {
         return ioFile;
     }
-
-    Path getInternalPath() {
-        return path;
-    }
 }
