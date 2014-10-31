@@ -680,7 +680,6 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException("Unable rename root folder. ");
         }
         final String sourcePath = virtualFile.getPath();
-        final VirtualFileImpl parent = getParent(virtualFile);
         if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
             throw new ForbiddenException(String.format("Unable rename item '%s'. Operation not permitted. ", sourcePath));
         }
@@ -1028,14 +1027,15 @@ public class FSMountPoint implements MountPoint {
                     // We already know parent accessible for current user otherwise we should not be here.
                     // Ignore item if don't have permission to read it.
                     if (filter.accept(current) && hasPermission((VirtualFileImpl)current, BasicPermissions.READ.value(), false)) {
-                        final String zipEntryName =
-                                ((VirtualFileImpl)current).getVirtualFilePath().subPath(zipEntryNameTrim).toString().substring(1);
+                        final String zipEntryName = current.getVirtualFilePath().subPath(zipEntryNameTrim).toString().substring(1);
                         if (current.isFile()) {
                             final ZipEntry zipEntry = new ZipEntry(zipEntryName);
-                            zipEntry.setTime(virtualFile.getLastModificationDate());
                             zipOut.putNextEntry(zipEntry);
                             InputStream in = null;
+                            final PathLockFactory.PathLock lock =
+                                    pathLockFactory.getLock(current.getVirtualFilePath(), false).acquire(LOCK_FILE_TIMEOUT);
                             try {
+                                zipEntry.setTime(virtualFile.getLastModificationDate());
                                 in = new FileInputStream(((VirtualFileImpl)current).getIoFile());
                                 int r;
                                 while ((r = in.read(buff)) != -1) {
@@ -1043,6 +1043,7 @@ public class FSMountPoint implements MountPoint {
                                 }
                             } finally {
                                 closeQuietly(in);
+                                lock.release();
                             }
                             zipOut.closeEntry();
                         } else if (current.isFolder()) {
@@ -1597,6 +1598,7 @@ public class FSMountPoint implements MountPoint {
 
 
     private String countHashSum(VirtualFile virtualFile, HashFunction hashFunction) throws ServerException {
+        final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getVirtualFilePath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final InputStream stream = virtualFile.getContent().getStream();
             return ByteStreams.hash(new InputSupplier<InputStream>() {
@@ -1609,6 +1611,8 @@ public class FSMountPoint implements MountPoint {
             throw new ServerException(e.getServiceError());
         } catch (IOException e) {
             throw new ServerException(e);
+        } finally {
+            lock.release();
         }
     }
 
