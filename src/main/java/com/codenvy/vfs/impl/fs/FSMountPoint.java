@@ -438,13 +438,16 @@ public class FSMountPoint implements MountPoint {
             return null;
         }
         final Path childPath = parent.getVirtualFilePath().newPath(name);
-        final VirtualFileImpl child =
-                new VirtualFileImpl(new java.io.File(parent.getIoFile(), name), childPath, pathToId(childPath), this);
+        final VirtualFileImpl child = new VirtualFileImpl(new java.io.File(parent.getIoFile(), name), childPath, pathToId(childPath), this);
         if (child.exists()) {
-            if (hasPermission(child, BasicPermissions.READ.value(), true)) {
-                return child;
+            if (!child.getPath().endsWith(".codenvy/misc.xml")) {
+                // Don't check permissions for file "misc.xml" in folder ".codenvy". Dirty huck :( but seems simplest solution for now.
+                // Need to work with 'misc.xml' independently to user.
+                if (!hasPermission(child, BasicPermissions.READ.value(), true)) {
+                    throw new ForbiddenException(String.format("Unable get item '%s'. Operation not permitted. ", child.getPath()));
+                }
             }
-            throw new ForbiddenException(String.format("Unable get item '%s'. Operation not permitted. ", child.getPath()));
+            return child;
         }
 
         return null;
@@ -501,8 +504,12 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException("Unable create new file. Item specified as parent is not a folder. ");
         }
 
-        if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
-            throw new ForbiddenException(String.format("Unable create new file in '%s'. Operation not permitted. ", parent.getPath()));
+        if (!".codenvy".equals(parent.getName()) && !"misc.xml".equals(name)) {
+            // Don't check permissions when create file "misc.xml" in folder ".codenvy". Dirty huck :( but seems simplest solution for now.
+            // Need to work with 'misc.xml' independently to user.
+            if (!hasPermission(parent, BasicPermissions.WRITE.value(), true)) {
+                throw new ForbiddenException(String.format("Unable create new file in '%s'. Operation not permitted. ", parent.getPath()));
+            }
         }
         final Path newPath = parent.getVirtualFilePath().newPath(name);
         final java.io.File newIoFile = new java.io.File(ioRoot, toIoPath(newPath));
@@ -834,9 +841,13 @@ public class FSMountPoint implements MountPoint {
             throw new ForbiddenException(String.format("Unable update content. Item '%s' is not file. ", virtualFile.getPath()));
         }
 
-        if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
-            throw new ForbiddenException(
-                    String.format("Unable update content of file '%s'. Operation not permitted. ", virtualFile.getPath()));
+        if (!virtualFile.getPath().endsWith(".codenvy/misc.xml")) {
+            // Don't check permissions when update file ".codenvy/misc.xml". Dirty huck :( but seems simplest solution for now.
+            // Need to work with 'misc.xml' independently to user.
+            if (!hasPermission(virtualFile, BasicPermissions.WRITE.value(), true)) {
+                throw new ForbiddenException(
+                        String.format("Unable update content of file '%s'. Operation not permitted. ", virtualFile.getPath()));
+            }
         }
         if (!validateLockTokenIfLocked(virtualFile, lockToken)) {
             throw new ForbiddenException(String.format("Unable update content of file '%s'. File is locked. ", virtualFile.getPath()));
@@ -1219,7 +1230,6 @@ public class FSMountPoint implements MountPoint {
         doUnlock(virtualFile, fileLock, lockToken);
     }
 
-    // UNDER LOCK
     private void doUnlock(VirtualFileImpl virtualFile, FileLock lock, String lockToken) throws ForbiddenException, ServerException {
         final int index = virtualFile.getVirtualFilePath().hashCode() & MASK;
         try {
@@ -1266,7 +1276,6 @@ public class FSMountPoint implements MountPoint {
     }
 
 
-    // UNDER LOCK
     private boolean validateLockTokenIfLocked(VirtualFileImpl virtualFile, String checkLockToken) {
         final FileLock lock = checkIsLockValidAndGet(virtualFile);
         return NO_LOCK == lock || lock.getLockToken().equals(checkLockToken);
