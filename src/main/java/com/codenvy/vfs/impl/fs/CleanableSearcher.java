@@ -17,6 +17,7 @@ import com.codenvy.api.vfs.server.VirtualFileFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -44,18 +45,21 @@ public class CleanableSearcher extends FSIndexSearcher {
     @Override
     public void init(final MountPoint mountPoint) throws ServerException {
         doInit();
-        searcherService.getExecutor().execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    CleanableSearcher.this.addTree(mountPoint.getRoot());
-                    initFlag.set(true);
-                } catch (ServerException e) {
-                    initError.set(e);
-                    LOG.error(e.getMessage());
+        final ExecutorService executor = searcherService.getExecutor();
+        if (!executor.isShutdown()) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        CleanableSearcher.this.addTree(mountPoint.getRoot());
+                        initFlag.set(true);
+                    } catch (ServerException e) {
+                        initError.set(e);
+                        LOG.error(e.getMessage());
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
     // for test
@@ -75,6 +79,9 @@ public class CleanableSearcher extends FSIndexSearcher {
 
     void doClose() {
         super.close();
-        deleteRecursive(getIndexDir());
+        final java.io.File dir = getIndexDir();
+        if (!deleteRecursive(dir)) {
+            LOG.warn("Unable delete index directory '{}'", dir);
+        }
     }
 }

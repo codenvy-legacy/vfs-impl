@@ -84,7 +84,10 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
             searcher = instances.putIfAbsent(vfsIoRoot, newSearcher);
             if (searcher == null) {
                 searcher = newSearcher;
-                newSearcher.init(mountPoint);
+                searcher.init(mountPoint);
+            } else {
+                // not need this directory
+                myIndexDir.delete();
             }
         }
         return searcher;
