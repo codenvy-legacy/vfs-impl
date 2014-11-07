@@ -1118,8 +1118,12 @@ public class FSMountPoint implements MountPoint {
                 final Path newPath = current.getVirtualFilePath().newPath(name);
                 if (zipEntry.isDirectory()) {
                     final java.io.File dir = new java.io.File(current.getIoFile(), name);
-                    if (!(dir.exists() || dir.mkdir())) {
-                        throw new ServerException(String.format("Unable create directory '%s' ", newPath));
+                    if (!dir.exists()) {
+                        if (dir.mkdir()) {
+                            eventService.publish(new CreateEvent(workspaceId, newPath.toString(), true));
+                        } else {
+                            throw new ServerException(String.format("Unable create directory '%s' ", newPath));
+                        }
                     }
                 } else {
                     final VirtualFileImpl file =
@@ -1134,8 +1138,9 @@ public class FSMountPoint implements MountPoint {
                         }
                     }
 
+                    boolean newFile;
                     try {
-                        if (!file.getIoFile().createNewFile()) { // atomic
+                        if (!(newFile = file.getIoFile().createNewFile())) { // atomic
                             if (!overwrite) {
                                 throw new ConflictException(String.format("File '%s' already exists. ", file.getPath()));
                             }
@@ -1147,6 +1152,11 @@ public class FSMountPoint implements MountPoint {
                     }
 
                     doUpdateContent(file, noCloseZip);
+                    if (newFile) {
+                        eventService.publish(new CreateEvent(workspaceId, newPath.toString(), false));
+                    } else {
+                        eventService.publish(new UpdateContentEvent(workspaceId, newPath.toString()));
+                    }
                 }
                 zip.closeEntry();
             }
