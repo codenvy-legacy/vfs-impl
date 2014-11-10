@@ -1103,21 +1103,16 @@ public class FSMountPoint implements MountPoint {
             // ZipEntry but not able to close original stream of ZIPed data.
             InputStream noCloseZip = new NotClosableInputStream(zip);
             ZipEntry zipEntry;
-            String stripComponents = "";
             while ((zipEntry = zip.getNextEntry()) != null) {
                 VirtualFileImpl current = parent;
+                Path relPath = Path.fromString(zipEntry.getName());
 
-                int currentLevel = zipEntry.getName().split("/").length;
-                if (currentLevel < stripNumber) {
-                    continue;
-                } else if (currentLevel == stripNumber) {
-                    if (zipEntry.isDirectory()) {
-                        stripComponents = zipEntry.getName();
-                    }
+                int currentLevel = relPath.elements().length;
+                if (currentLevel <= stripNumber) {
                     continue;
                 }
-                String entryName = zipEntry.getName().substring(stripComponents.length());
-                final Path relPath = Path.fromString(entryName);
+                relPath = relPath.subPath(stripNumber);
+
                 final String name = relPath.getName();
                 if (relPath.length() > 1) {
                     // create all required parent directories
