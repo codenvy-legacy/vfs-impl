@@ -31,5 +31,6 @@ public class VirtualFileSystemFSModule extends AbstractModule {
         });
         bind(LocalFSMountStrategy.class).to(WorkspaceHashLocalFSMountStrategy.class);
         bind(SearcherProvider.class).to(CleanableSearcherProvider.class);
+        bind(MountPointCacheCleaner.Finalizer.class).asEagerSingleton();
     }
 }

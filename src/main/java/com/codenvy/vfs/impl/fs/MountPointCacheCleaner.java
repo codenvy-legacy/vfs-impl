@@ -15,6 +15,7 @@ import com.codenvy.commons.lang.NamedThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
@@ -47,7 +48,7 @@ class MountPointCacheCleaner {
                         for (Entry entry : watched.values()) {
                             if (Files.exists(entry.resetFilePath)) {
                                 entry.mountPoint.reset();
-                                LOG.info("reset cache for VFS mounted at {}", entry.mountPoint.getRoot().getIoFile());
+                                LOG.info("Reset cache for VFS mounted at {}", entry.mountPoint.getRoot().getIoFile());
                                 try {
                                     Files.delete(entry.resetFilePath);
                                 } catch (IOException e) {
@@ -70,6 +71,15 @@ class MountPointCacheCleaner {
 
     static void remove(FSMountPoint mountPoint) {
         watched.remove(mountPoint.getRoot().getIoFile());
+    }
+
+    static class Finalizer {
+        @PreDestroy
+        void stop() {
+            exec.shutdownNow();
+            watched.clear();
+            LOG.info("VFS cache cleaner stopped.");
+        }
     }
 
     private static class Entry {
