@@ -231,8 +231,8 @@ public class VirtualFileImpl implements VirtualFile {
     }
 
     @Override
-    public void unzip(InputStream zipped, boolean overwrite) throws ForbiddenException, ConflictException, ServerException {
-        mountPoint.unzip(this, zipped, overwrite);
+    public void unzip(InputStream zipped, boolean overwrite, int stripNumber) throws ForbiddenException, ConflictException, ServerException {
+        mountPoint.unzip(this, zipped, overwrite, stripNumber);
     }
 
     //

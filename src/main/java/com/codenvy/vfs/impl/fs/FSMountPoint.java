@@ -1081,7 +1081,7 @@ public class FSMountPoint implements MountPoint {
     }
 
 
-    void unzip(VirtualFileImpl parent, InputStream zipped, boolean overwrite)
+    void unzip(VirtualFileImpl parent, InputStream zipped, boolean overwrite, int stripNumber)
             throws ForbiddenException, ConflictException, ServerException {
         if (!parent.isFolder()) {
             throw new ForbiddenException(String.format("Unable import zip content. Item '%s' is not a folder. ", parent.getPath()));
@@ -1105,7 +1105,16 @@ public class FSMountPoint implements MountPoint {
             ZipEntry zipEntry;
             while ((zipEntry = zip.getNextEntry()) != null) {
                 VirtualFileImpl current = parent;
-                final Path relPath = Path.fromString(zipEntry.getName());
+                Path relPath = Path.fromString(zipEntry.getName());
+
+                if (stripNumber > 0) {
+                    int currentLevel = relPath.elements().length;
+                    if (currentLevel <= stripNumber) {
+                        continue;
+                    }
+                    relPath = relPath.subPath(stripNumber);
+                }
+
                 final String name = relPath.getName();
                 if (relPath.length() > 1) {
                     // create all required parent directories
