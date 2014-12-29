@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @author andrew00x
  */
-class MountPointCacheCleaner {
+public class MountPointCacheCleaner {
     private static final Logger LOG = LoggerFactory.getLogger(MountPointCacheCleaner.class);
 
     private static final String CACHE_RESET_PATH =
@@ -73,7 +73,7 @@ class MountPointCacheCleaner {
         watched.remove(mountPoint.getRoot().getIoFile());
     }
 
-    static class Finalizer {
+    public static class Finalizer {
         @PreDestroy
         void stop() {
             exec.shutdownNow();
