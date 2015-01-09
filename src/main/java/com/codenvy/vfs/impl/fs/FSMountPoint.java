@@ -466,7 +466,7 @@ public class FSMountPoint implements MountPoint {
                 return LazyIterator.emptyIterator();
             }
         }
-        final List<VirtualFile> children = doGetChildren(parent, SERVICE_GIT_DIR_FILTER);
+        final List<VirtualFile> children = doGetChildren(parent, SERVICE_DIR_FILTER);
         for (Iterator<VirtualFile> iterator = children.iterator(); iterator.hasNext(); ) {
             VirtualFile child = iterator.next();
             // Check permission directly for current file only.
