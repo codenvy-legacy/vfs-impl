@@ -51,9 +51,9 @@ import com.codenvy.commons.lang.cache.SynchronizedCache;
 import com.codenvy.dto.server.DtoFactory;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-import com.google.common.io.ByteStreams;
-import com.google.common.io.InputSupplier;
+import com.google.common.io.ByteSource;
 
 import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
@@ -87,6 +87,7 @@ import java.util.zip.ZipOutputStream;
 import static com.codenvy.commons.lang.IoUtil.GIT_FILTER;
 import static com.codenvy.commons.lang.IoUtil.deleteRecursive;
 import static com.codenvy.commons.lang.IoUtil.nioCopy;
+import static java.util.Objects.hash;
 
 /**
  * Local filesystem implementation of MountPoint.
@@ -1629,12 +1630,7 @@ public class FSMountPoint implements MountPoint {
         final PathLockFactory.PathLock lock = pathLockFactory.getLock(virtualFile.getVirtualFilePath(), false).acquire(LOCK_FILE_TIMEOUT);
         try {
             final InputStream stream = virtualFile.getContent().getStream();
-            return ByteStreams.hash(new InputSupplier<InputStream>() {
-                @Override
-                public InputStream getInput() throws IOException {
-                    return stream;
-                }
-            }, hashFunction).toString();
+            return ByteSource.concat().hash(hashFunction).toString();
         } catch (ForbiddenException e) {
             throw new ServerException(e.getServiceError());
         } catch (IOException e) {
