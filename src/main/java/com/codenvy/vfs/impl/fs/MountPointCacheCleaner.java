@@ -10,7 +10,7 @@
  *******************************************************************************/
 package com.codenvy.vfs.impl.fs;
 
-import com.codenvy.commons.lang.NamedThreadFactory;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,8 +35,8 @@ public class MountPointCacheCleaner {
     private static final String CACHE_RESET_PATH =
             FSMountPoint.SERVICE_DIR + java.io.File.separatorChar + "cache" + java.io.File.separatorChar + "reset";
 
-    private static ScheduledExecutorService exec =
-            Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("MountPointCacheCleaner", true));
+    private static ScheduledExecutorService exec = Executors
+            .newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("MountPointCacheCleaner").setDaemon(true).build());
 
     private static Map<java.io.File, Entry> watched = new ConcurrentHashMap<>();
 
