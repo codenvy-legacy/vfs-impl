@@ -36,7 +36,7 @@ public class FSIndexSearcher extends LuceneSearcher {
     @Override
     protected Directory makeDirectory() throws ServerException {
         try {
-            return FSDirectory.open(indexDir, new SingleInstanceLockFactory());
+            return FSDirectory.open(indexDir.toPath(), new SingleInstanceLockFactory());
         } catch (IOException e) {
             throw new ServerException(e);
         }

@@ -16,14 +16,13 @@ import com.codenvy.api.vfs.shared.dto.Item;
 import com.codenvy.api.vfs.shared.dto.ItemList;
 import com.codenvy.commons.lang.Pair;
 
-import org.apache.lucene.analysis.SimpleAnalyzer;
+import org.apache.lucene.analysis.core.SimpleAnalyzer;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.queryParser.QueryParser;
+import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.util.Version;
 import org.everrest.core.impl.ContainerResponse;
 import org.everrest.core.tools.ByteArrayContainerResponseWriter;
 
@@ -173,13 +172,13 @@ public class SearcherTest extends LocalFileSystemTest {
 
     public void testUpdate() throws Exception {
         IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
-        TopDocs topDocs = luceneSearcher.search(new QueryParser(Version.LUCENE_29, "text", new SimpleAnalyzer()).parse("updated"), 10);
+        TopDocs topDocs = luceneSearcher.search(new QueryParser("text", new SimpleAnalyzer()).parse("updated"), 10);
         assertEquals(0, topDocs.totalHits);
         searcher.releaseLuceneSearcher(luceneSearcher);
         mountPoint.getVirtualFile(file2).updateContent(new ByteArrayInputStream("updated content".getBytes()), null);
 
         luceneSearcher = searcher.getLuceneSearcher();
-        topDocs = luceneSearcher.search(new QueryParser(Version.LUCENE_29, "text", new SimpleAnalyzer()).parse("updated"), 10);
+        topDocs = luceneSearcher.search(new QueryParser("text", new SimpleAnalyzer()).parse("updated"), 10);
         assertEquals(1, topDocs.totalHits);
         searcher.releaseLuceneSearcher(luceneSearcher);
     }
