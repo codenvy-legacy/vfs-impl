@@ -17,7 +17,7 @@ import com.codenvy.api.vfs.server.search.LuceneSearcherProvider;
 import com.codenvy.api.vfs.server.search.Searcher;
 import com.codenvy.api.vfs.server.util.MediaTypeFilter;
 import com.codenvy.api.vfs.server.util.VirtualFileFilters;
-import com.codenvy.commons.lang.NamedThreadFactory;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import javax.annotation.PreDestroy;
 import javax.inject.Inject;
@@ -51,7 +51,8 @@ public class CleanableSearcherProvider extends LuceneSearcherProvider {
         this.indexRootDir = indexRootDir;
         this.filters = filters;
         executor = Executors.newFixedThreadPool(1 + Runtime.getRuntime().availableProcessors(),
-                                                new NamedThreadFactory("LocalVirtualFileSystem-CleanableSearcher-", true));
+                                                new ThreadFactoryBuilder().setNameFormat("LocalVirtualFileSystem-CleanableSearcher-")
+                                                                          .setDaemon(true).build());
         instances = new ConcurrentHashMap<>();
     }
 
