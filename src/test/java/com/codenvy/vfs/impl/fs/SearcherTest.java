@@ -21,6 +21,8 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.PrefixQuery;
+import org.apache.lucene.search.SearcherFactory;
+import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.everrest.core.impl.ContainerResponse;
@@ -43,6 +45,7 @@ public class SearcherTest extends LocalFileSystemTest {
     private String file3;
 
     private CleanableSearcher searcher;
+    private SearcherManager   searcherManager;
 
     @SuppressWarnings("unchecked")
     @Override
@@ -95,6 +98,7 @@ public class SearcherTest extends LocalFileSystemTest {
 
         // Touch Searcher to initialize it.
         searcher = (CleanableSearcher)searcherProvider.getSearcher(mountPoint, true);
+        searcherManager = new SearcherManager(searcher.getIndexWriter(), true, new SearcherFactory());
 
         Throwable error;
         while ((error = searcher.initializationError()) == null && !searcher.initialized()) {
@@ -132,104 +136,118 @@ public class SearcherTest extends LocalFileSystemTest {
     }
 
     public void testDeleteFile() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         TopDocs topDocs = luceneSearcher.search(new TermQuery(new Term("path", file1)), 10);
         assertEquals(1, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
 
         mountPoint.getVirtualFile(file1).delete(null);
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new TermQuery(new Term("path", file1)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testDeleteFolder() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         TopDocs topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", searchTestPath)), 10);
         assertEquals(3, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
 
         mountPoint.getVirtualFile(searchTestPath).delete(null);
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", searchTestPath)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testAdd() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         TopDocs topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", searchTestPath)), 10);
         assertEquals(3, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
         mountPoint.getVirtualFile(searchTestPath).createFile("new_file.txt", null, new ByteArrayInputStream(DEFAULT_CONTENT_BYTES));
 
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", searchTestPath)), 10);
         assertEquals(4, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testUpdate() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         TopDocs topDocs = luceneSearcher.search(new QueryParser("text", new SimpleAnalyzer()).parse("updated"), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
         mountPoint.getVirtualFile(file2).updateContent(new ByteArrayInputStream("updated content".getBytes()), null);
 
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new QueryParser("text", new SimpleAnalyzer()).parse("updated"), 10);
         assertEquals(1, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testMove() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         String destination = createDirectory(testRootPath, "___destination");
         String expected = destination + '/' + "SearcherTest_File03";
         TopDocs topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", expected)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
         mountPoint.getVirtualFile(file3).moveTo(mountPoint.getVirtualFile(destination), null);
 
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", expected)), 10);
         assertEquals(1, topDocs.totalHits);
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", file3)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testCopy() throws Exception {
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         String destination = createDirectory(testRootPath, "___destination");
         String expected = destination + '/' + "SearcherTest_File03";
         TopDocs topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", expected)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
         mountPoint.getVirtualFile(file3).copyTo(mountPoint.getVirtualFile(destination));
 
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", expected)), 10);
         assertEquals(1, topDocs.totalHits);
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", file3)), 10);
         assertEquals(1, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 
     public void testRename() throws Exception {
         String newName = "___renamed";
-        IndexSearcher luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        IndexSearcher luceneSearcher = searcherManager.acquire();
         TopDocs topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", file3)), 10);
         assertEquals(1, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
         mountPoint.getVirtualFile(file2).rename(newName, null, null);
 
-        luceneSearcher = searcher.getLuceneSearcher();
+        searcherManager.maybeRefresh();
+        luceneSearcher = searcherManager.acquire();
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", searchTestPath + '/' + newName)), 10);
         assertEquals(1, topDocs.totalHits);
         topDocs = luceneSearcher.search(new PrefixQuery(new Term("path", file2)), 10);
         assertEquals(0, topDocs.totalHits);
-        searcher.releaseLuceneSearcher(luceneSearcher);
+        searcherManager.release(luceneSearcher);
     }
 }
